@@ -1,6 +1,10 @@
 package test
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -79,4 +83,90 @@ func TestPrerequisites_KindVersion(t *testing.T) {
 	}
 
 	t.Logf("Kind version: %s", output)
+}
+
+// TestPrerequisites_DockerCredentialHelper checks that any Docker credential helpers
+// configured in the Docker config file (credsStore or credHelpers) are available in PATH.
+// Only runs on macOS, where missing credential helpers are a common issue with Docker Desktop alternatives.
+func TestPrerequisites_DockerCredentialHelper(t *testing.T) {
+	// Only run on macOS where this is a common issue
+	if runtime.GOOS != "darwin" {
+		t.Skip("Skipping Docker credential helper check (not macOS)")
+		return
+	}
+
+	// Check if docker command exists
+	if !CommandExists("docker") {
+		if CommandExists("podman") {
+			t.Skip("Using podman instead of docker")
+			return
+		}
+		t.Skip("Docker not installed")
+		return
+	}
+
+	// Determine Docker config directory (respect DOCKER_CONFIG env var)
+	dockerConfigDir := os.Getenv("DOCKER_CONFIG")
+	if dockerConfigDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			t.Logf("Could not determine home directory: %v", err)
+			return
+		}
+		dockerConfigDir = filepath.Join(homeDir, ".docker")
+	}
+
+	configPath := filepath.Join(dockerConfigDir, "config.json")
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		// No config file is fine
+		t.Logf("No Docker config file found at %s (this is OK)", configPath)
+		return
+	}
+
+	// Parse Docker config
+	var config struct {
+		CredsStore  string            `json:"credsStore"`
+		CredHelpers map[string]string `json:"credHelpers"`
+	}
+
+	if err := json.Unmarshal(configData, &config); err != nil {
+		t.Logf("Could not parse Docker config: %v", err)
+		return
+	}
+
+	// Check if credsStore is set
+	if config.CredsStore != "" {
+		t.Run("credsStore", func(t *testing.T) {
+			helper := "docker-credential-" + config.CredsStore
+			if !CommandExists(helper) {
+				t.Errorf("Docker is configured to use credential helper '%s' but it's not in PATH\n"+
+					"This will cause 'docker pull' commands to fail with:\n"+
+					"  error getting credentials - err: exec: \"%s\": executable file not found in $PATH\n\n"+
+					"To fix this issue, run:\n"+
+					"  make fix-docker-config\n\n"+
+					"Or manually remove the credsStore from %s",
+					config.CredsStore, helper, configPath)
+			} else {
+				t.Logf("Docker credential helper '%s' is available", helper)
+			}
+		})
+	}
+
+	// Check credHelpers
+	for registry, helper := range config.CredHelpers {
+		registry := registry // capture range variable
+		helper := helper
+		t.Run(registry, func(t *testing.T) {
+			helperBin := "docker-credential-" + helper
+			if !CommandExists(helperBin) {
+				t.Errorf("Docker is configured to use credential helper '%s' for registry '%s' but it's not in PATH\n"+
+					"To fix this issue, run:\n"+
+					"  make fix-docker-config",
+					helper, registry)
+			} else {
+				t.Logf("Docker credential helper '%s' for registry '%s' is available", helper, registry)
+			}
+		})
+	}
 }
