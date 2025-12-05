@@ -213,19 +213,19 @@ make test
 
 ---
 
-### Short Mode
+### Quick Validation
 
-Quick validation without long-running deployment tests.
+Prerequisite validation without deployment tests.
 
 ```bash
-make test-short
-# or
-go test -v -short ./test
+go test -v ./test -run TestPrerequisites
 ```
 
 **Duration**: < 2 minutes
-**Requirements**: Only local tools (no Azure credentials needed)
-**Coverage**: Prerequisites and setup validation only
+**Requirements**: Local tools and Azure CLI login
+**Coverage**: Prerequisites validation only
+
+**Note**: Since `make test-short` was removed, use the Go test command above to run only prerequisite tests. The `make test` target runs the complete test suite.
 
 ---
 
