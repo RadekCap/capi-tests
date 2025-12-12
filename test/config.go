@@ -4,6 +4,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
+)
+
+const (
+	// DefaultDeploymentTimeout is the default timeout for control plane deployment
+	DefaultDeploymentTimeout = 45 * time.Minute
 )
 
 var (
@@ -50,6 +56,9 @@ type TestConfig struct {
 	ClusterctlBinPath string
 	ScriptsPath       string
 	GenScriptPath     string
+
+	// Timeouts
+	DeploymentTimeout time.Duration
 }
 
 // NewTestConfig creates a new test configuration with defaults
@@ -74,7 +83,27 @@ func NewTestConfig() *TestConfig {
 		ClusterctlBinPath: GetEnvOrDefault("CLUSTERCTL_BIN", "./bin/clusterctl"),
 		ScriptsPath:       GetEnvOrDefault("SCRIPTS_PATH", "./scripts"),
 		GenScriptPath:     GetEnvOrDefault("GEN_SCRIPT_PATH", "./doc/aro-hcp-scripts/aro-hcp-gen.sh"),
+
+		// Timeouts
+		DeploymentTimeout: parseDeploymentTimeout(),
 	}
+}
+
+// parseDeploymentTimeout parses the DEPLOYMENT_TIMEOUT environment variable.
+// Returns the parsed duration or defaults to DefaultDeploymentTimeout.
+// Logs a warning if the provided value is invalid.
+func parseDeploymentTimeout() time.Duration {
+	timeoutStr := os.Getenv("DEPLOYMENT_TIMEOUT")
+	if timeoutStr == "" {
+		return DefaultDeploymentTimeout
+	}
+
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: invalid DEPLOYMENT_TIMEOUT '%s', using default %v\n", timeoutStr, DefaultDeploymentTimeout)
+		return DefaultDeploymentTimeout
+	}
+	return timeout
 }
 
 // GetOutputDirName returns the output directory name for generated infrastructure files
