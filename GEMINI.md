@@ -166,7 +166,7 @@ See `docs/INTEGRATION.md` for detailed integration patterns.
   - Use this variable for configuring tests; `KIND_CLUSTER_NAME` is set internally
 - `WORKLOAD_CLUSTER_NAME` - ARO workload cluster name (default: `capz-tests-cluster`)
 - `RESOURCE_GROUP` - Azure resource group
-- `OPENSHIFT_VERSION` - OpenShift version (default: `4.18`)
+- `OPENSHIFT_VERSION` - OpenShift version (default: `4.21`)
 - `REGION` - Azure region (default: `uksouth`)
 - `AZURE_SUBSCRIPTION_NAME` - Azure subscription ID (required for deployment)
 - `DEPLOYMENT_ENV` - Deployment environment identifier (default: `stage`)
