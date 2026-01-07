@@ -217,7 +217,7 @@ MANAGEMENT_CLUSTER_NAME=capz-tests-stage  # For running tests
 KIND_CLUSTER_NAME=capz-tests-stage        # For direct script usage (advanced)
 CLUSTER_NAME=capz-tests-cluster
 RESOURCE_GROUP=capz-tests-rg
-OPENSHIFT_VERSION=4.18
+OPENSHIFT_VERSION=4.21
 REGION=uksouth
 DEPLOYMENT_ENV=stage
 
