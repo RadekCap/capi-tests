@@ -222,3 +222,46 @@ func TestVerification_ClusterHealth(t *testing.T) {
 		}
 	}
 }
+
+// TestVerification_TestedVersionsSummary displays a summary of all tested component versions.
+// This test collects version information from the management cluster for CAPZ, ASO, CAPI,
+// and other infrastructure components, providing a clear summary at the end of testing.
+func TestVerification_TestedVersionsSummary(t *testing.T) {
+
+	config := NewTestConfig()
+	context := fmt.Sprintf("kind-%s", config.ManagementClusterName)
+
+	PrintTestHeader(t, "TestVerification_TestedVersionsSummary",
+		"Display summary of tested infrastructure component versions")
+
+	// Get component versions from the management cluster
+	versions := GetComponentVersions(t, context)
+
+	// Format and display the version summary
+	summary := FormatComponentVersions(versions)
+	PrintToTTY("%s", summary)
+	t.Log(summary)
+
+	// Log individual component details for test output
+	for _, v := range versions {
+		if v.Version == "not found" {
+			t.Logf("Component %s: not deployed or not accessible", v.Name)
+		} else {
+			t.Logf("Component %s: version %s (image: %s)", v.Name, v.Version, v.Image)
+		}
+	}
+
+	// Count successfully retrieved versions
+	foundCount := 0
+	for _, v := range versions {
+		if v.Version != "not found" {
+			foundCount++
+		}
+	}
+
+	if foundCount == 0 {
+		t.Log("Warning: No component versions could be retrieved. Management cluster may not be running.")
+	} else {
+		t.Logf("Successfully retrieved version information for %d/%d components", foundCount, len(versions))
+	}
+}

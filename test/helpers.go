@@ -977,6 +977,117 @@ func WaitForClusterReady(t *testing.T, kubeContext, clusterName string, timeout 
 	}
 }
 
+// ComponentVersion represents version information for a deployed component.
+type ComponentVersion struct {
+	Name    string // Component name (e.g., "CAPZ", "ASO")
+	Version string // Version string (e.g., "v1.19.0")
+	Image   string // Full container image reference
+}
+
+// GetDeploymentImage retrieves the container image for a deployment.
+// Returns the image reference or an error if the deployment is not found.
+func GetDeploymentImage(t *testing.T, kubeContext, namespace, deploymentName string) (string, error) {
+	t.Helper()
+
+	output, err := RunCommandQuiet(t, "kubectl", "--context", kubeContext,
+		"-n", namespace, "get", "deployment", deploymentName,
+		"-o", "jsonpath={.spec.template.spec.containers[0].image}")
+	if err != nil {
+		return "", fmt.Errorf("failed to get deployment image: %w", err)
+	}
+
+	image := strings.TrimSpace(output)
+	if image == "" {
+		return "", fmt.Errorf("deployment image is empty")
+	}
+
+	return image, nil
+}
+
+// extractVersionFromImage extracts the version tag from a container image reference.
+// For example: "mcr.microsoft.com/oss/azure/capz:v1.19.0" returns "v1.19.0"
+// Returns "unknown" if no version tag can be extracted.
+func extractVersionFromImage(image string) string {
+	// Split by @ for digest references (e.g., image@sha256:...)
+	if idx := strings.Index(image, "@"); idx != -1 {
+		// Digest-based reference, try to find version before @
+		image = image[:idx]
+	}
+
+	// Split by : to get the tag
+	parts := strings.Split(image, ":")
+	if len(parts) >= 2 {
+		tag := parts[len(parts)-1]
+		// Validate it looks like a version (starts with v or is a number)
+		if strings.HasPrefix(tag, "v") || (len(tag) > 0 && tag[0] >= '0' && tag[0] <= '9') {
+			return tag
+		}
+	}
+
+	return "unknown"
+}
+
+// GetComponentVersions retrieves version information for key infrastructure components.
+// Returns a slice of ComponentVersion with details for each component.
+// Components that cannot be queried are included with "unknown" or "not found" versions.
+func GetComponentVersions(t *testing.T, kubeContext string) []ComponentVersion {
+	t.Helper()
+
+	// Define components to check - these are the key components for ARO-CAPZ deployment
+	components := []struct {
+		name       string
+		namespace  string
+		deployment string
+	}{
+		{"CAPZ (Cluster API Provider Azure)", "capz-system", "capz-controller-manager"},
+		{"ASO (Azure Service Operator)", "capz-system", "azureserviceoperator-controller-manager"},
+		{"CAPI (Cluster API)", "capi-system", "capi-controller-manager"},
+	}
+
+	var versions []ComponentVersion
+
+	for _, comp := range components {
+		image, err := GetDeploymentImage(t, kubeContext, comp.namespace, comp.deployment)
+		if err != nil {
+			versions = append(versions, ComponentVersion{
+				Name:    comp.name,
+				Version: "not found",
+				Image:   "N/A",
+			})
+			continue
+		}
+
+		versions = append(versions, ComponentVersion{
+			Name:    comp.name,
+			Version: extractVersionFromImage(image),
+			Image:   image,
+		})
+	}
+
+	return versions
+}
+
+// FormatComponentVersions formats a slice of ComponentVersion for display.
+// Returns a formatted string suitable for logging.
+func FormatComponentVersions(versions []ComponentVersion) string {
+	var result strings.Builder
+	result.WriteString("\n╔════════════════════════════════════════════════════════════════════════════════╗\n")
+	result.WriteString("║                      TESTED COMPONENT VERSIONS                                 ║\n")
+	result.WriteString("╠════════════════════════════════════════════════════════════════════════════════╣\n")
+
+	for _, v := range versions {
+		// Truncate image if too long for display
+		displayImage := v.Image
+		if len(displayImage) > 60 {
+			displayImage = displayImage[:57] + "..."
+		}
+		result.WriteString(fmt.Sprintf("║ %-38s │ %-15s ║\n", v.Name, v.Version))
+	}
+
+	result.WriteString("╚════════════════════════════════════════════════════════════════════════════════╝\n")
+	return result.String()
+}
+
 // ValidateYAMLFile validates that a file contains valid YAML.
 // Returns an error if the file is empty, unreadable, or contains invalid YAML syntax.
 // This is more robust than just checking file size, as it verifies YAML structure.
