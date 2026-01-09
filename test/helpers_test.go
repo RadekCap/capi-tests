@@ -1275,3 +1275,138 @@ func TestClusterReadyConstants(t *testing.T) {
 			DefaultClusterReadyPollInterval, DefaultClusterReadyTimeout)
 	}
 }
+
+func TestExtractVersionFromImage(t *testing.T) {
+	tests := []struct {
+		name     string
+		image    string
+		expected string
+	}{
+		{
+			name:     "standard image with version tag",
+			image:    "mcr.microsoft.com/oss/azure/capz:v1.19.0",
+			expected: "v1.19.0",
+		},
+		{
+			name:     "image with numeric version",
+			image:    "registry.k8s.io/cluster-api/cluster-api-controller:1.8.4",
+			expected: "1.8.4",
+		},
+		{
+			name:     "image with digest",
+			image:    "mcr.microsoft.com/oss/azure/capz:v1.19.0@sha256:abc123",
+			expected: "v1.19.0",
+		},
+		{
+			name:     "image with only digest (no tag)",
+			image:    "mcr.microsoft.com/oss/azure/capz@sha256:abc123",
+			expected: "unknown",
+		},
+		{
+			name:     "image with latest tag",
+			image:    "registry.example.com/controller:latest",
+			expected: "unknown",
+		},
+		{
+			name:     "image without tag",
+			image:    "mcr.microsoft.com/oss/azure/capz",
+			expected: "unknown",
+		},
+		{
+			name:     "image with port and version",
+			image:    "localhost:5000/myimage:v2.3.4",
+			expected: "v2.3.4",
+		},
+		{
+			name:     "empty image",
+			image:    "",
+			expected: "unknown",
+		},
+		{
+			name:     "image with pre-release version",
+			image:    "registry.io/app:v1.2.3-alpha.1",
+			expected: "v1.2.3-alpha.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractVersionFromImage(tt.image)
+			if result != tt.expected {
+				t.Errorf("extractVersionFromImage(%q) = %q, expected %q", tt.image, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFormatComponentVersions(t *testing.T) {
+	tests := []struct {
+		name     string
+		versions []ComponentVersion
+		checks   []string // Strings that should be present in output
+	}{
+		{
+			name: "single component",
+			versions: []ComponentVersion{
+				{Name: "CAPZ", Version: "v1.19.0", Image: "mcr.microsoft.com/capz:v1.19.0"},
+			},
+			checks: []string{"CAPZ", "v1.19.0", "TESTED COMPONENT VERSIONS"},
+		},
+		{
+			name: "multiple components",
+			versions: []ComponentVersion{
+				{Name: "CAPZ", Version: "v1.19.0", Image: "mcr.microsoft.com/capz:v1.19.0"},
+				{Name: "ASO", Version: "v2.10.0", Image: "mcr.microsoft.com/aso:v2.10.0"},
+			},
+			checks: []string{"CAPZ", "v1.19.0", "ASO", "v2.10.0"},
+		},
+		{
+			name: "component not found",
+			versions: []ComponentVersion{
+				{Name: "CAPI", Version: "not found", Image: "N/A"},
+			},
+			checks: []string{"CAPI", "not found"},
+		},
+		{
+			name:     "empty versions",
+			versions: []ComponentVersion{},
+			checks:   []string{"TESTED COMPONENT VERSIONS"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := FormatComponentVersions(tt.versions)
+
+			for _, check := range tt.checks {
+				if !strings.Contains(result, check) {
+					t.Errorf("FormatComponentVersions() output should contain %q, got:\n%s", check, result)
+				}
+			}
+
+			// Verify box drawing characters are present
+			if !strings.Contains(result, "╔") || !strings.Contains(result, "╚") {
+				t.Errorf("FormatComponentVersions() should use box drawing characters, got:\n%s", result)
+			}
+		})
+	}
+}
+
+func TestComponentVersionStruct(t *testing.T) {
+	// Test that ComponentVersion struct can be properly created and used
+	cv := ComponentVersion{
+		Name:    "Test Component",
+		Version: "v1.0.0",
+		Image:   "test.io/image:v1.0.0",
+	}
+
+	if cv.Name != "Test Component" {
+		t.Errorf("ComponentVersion.Name = %q, expected %q", cv.Name, "Test Component")
+	}
+	if cv.Version != "v1.0.0" {
+		t.Errorf("ComponentVersion.Version = %q, expected %q", cv.Version, "v1.0.0")
+	}
+	if cv.Image != "test.io/image:v1.0.0" {
+		t.Errorf("ComponentVersion.Image = %q, expected %q", cv.Image, "test.io/image:v1.0.0")
+	}
+}
