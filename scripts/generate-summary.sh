@@ -19,6 +19,7 @@
 #   - Per-test results (PASS/FAIL/SKIP) with timing
 #   - Per-phase totals
 #   - Overall totals across all phases
+#   - Links to controller logs (CAPI, CAPZ, ASO) if available
 
 set -euo pipefail
 
@@ -220,6 +221,54 @@ parse_junit_file() {
     echo "DONE $tests tests in $formatted_time"
 }
 
+# Function to list available controller logs in the results directory
+# Arguments: $1 = use_colors (true/false)
+list_controller_logs() {
+    local use_colors="${1:-true}"
+
+    # Set colors based on use_colors flag
+    local c_green c_nc
+    if [[ "$use_colors" == "true" ]]; then
+        c_green="${GREEN}"
+        c_nc="${NC}"
+    else
+        c_green=""
+        c_nc=""
+    fi
+
+    # Controller log file patterns
+    local controller_patterns=("capi-*.log" "capz-*.log" "aso-*.log")
+    local found_logs=()
+
+    # Find controller log files
+    for pattern in "${controller_patterns[@]}"; do
+        while IFS= read -r -d '' logfile; do
+            found_logs+=("$logfile")
+        done < <(find "$RESULTS_DIR" -maxdepth 1 -name "$pattern" -type f -print0 2>/dev/null | sort -z)
+    done
+
+    # Only print section if logs were found
+    if [[ ${#found_logs[@]} -gt 0 ]]; then
+        echo ""
+        echo "========================================"
+        echo "         CONTROLLER LOGS"
+        echo "========================================"
+        echo ""
+        echo "The following controller logs are available for troubleshooting:"
+        echo ""
+
+        local filename controller_name
+        for logfile in "${found_logs[@]}"; do
+            filename=$(basename "$logfile")
+            # Extract controller name from filename (e.g., "capi" from "capi-20260106_212030.log")
+            controller_name=$(echo "$filename" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+            printf "${c_green}  %s${c_nc}: %s\n" "$controller_name" "$logfile"
+        done
+
+        echo ""
+    fi
+}
+
 # Function to generate and print the complete summary
 # Arguments: $1 = use_colors (true/false)
 generate_summary() {
@@ -285,7 +334,9 @@ generate_summary() {
         printf "Skipped:       %d\n" "$TOTAL_SKIPPED"
     fi
     printf "Total time:    %s\n" "$formatted_total_time"
-    echo ""
+
+    # List controller logs if available
+    list_controller_logs "$use_colors"
 
     if [[ $TOTAL_FAILED -eq 0 ]]; then
         printf "${c_green}All tests passed!${c_nc}\n"
