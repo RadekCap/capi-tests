@@ -1,4 +1,4 @@
-.PHONY: test _check-dep _setup _cluster _generate-yamls _deploy-crds _verify test-all clean clean-all clean-azure help
+.PHONY: test _check-dep _setup _cluster _generate-yamls _deploy-crds _verify test-all clean clean-all clean-azure help summary
 
 # Default values
 DEPLOYMENT_ENV ?= stage
@@ -239,6 +239,13 @@ test-all: ## Run all test phases sequentially
 	@echo "======================================="
 	@echo "=== All Test Phases Completed Successfully ==="
 	@echo "======================================="
+	@echo ""
+	@# Generate test results summary
+	@if [ -x scripts/generate-summary.sh ]; then \
+		echo ""; \
+		./scripts/generate-summary.sh $(RESULTS_DIR); \
+		cp -f $(RESULTS_DIR)/summary.txt $(LATEST_RESULTS_DIR)/ 2>/dev/null || true; \
+	fi
 	@echo ""
 	@echo "All test results saved to: $(RESULTS_DIR)"
 	@echo "Latest results copied to: $(LATEST_RESULTS_DIR)/"
@@ -520,6 +527,17 @@ fix-docker-config: ## Fix Docker credential helper configuration issues
 	echo "   Backup saved to $$BACKUP_FILE"; \
 	echo ""; \
 	echo "You can now run 'make test-all' to deploy the Kind cluster and run all tests"
+
+summary: ## Generate test results summary from latest results
+	@if [ -d "$(LATEST_RESULTS_DIR)" ]; then \
+		./scripts/generate-summary.sh $(LATEST_RESULTS_DIR); \
+	elif [ -n "$$(ls -d results/2* 2>/dev/null | tail -1)" ]; then \
+		LATEST_RUN=$$(ls -d results/2* 2>/dev/null | tail -1); \
+		./scripts/generate-summary.sh "$$LATEST_RUN"; \
+	else \
+		echo "Error: No test results found. Run 'make test-all' first."; \
+		exit 1; \
+	fi
 
 fmt: ## Format Go code
 	go fmt ./...
