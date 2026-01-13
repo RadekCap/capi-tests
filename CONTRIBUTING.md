@@ -9,7 +9,14 @@ Thank you for your interest in contributing to the ARO-CAPZ Test Suite! This doc
 - [Making Changes](#making-changes)
 - [Pull Request Process](#pull-request-process)
 - [Test Execution Model](#test-execution-model)
-- [Code Style](#code-style)
+- [Coding Guidelines](#coding-guidelines)
+  - [Go Code](#go-code)
+  - [Test Code](#test-code)
+  - [Configuration](#configuration)
+  - [Helper Functions](#helper-functions)
+  - [Naming Conventions](#naming-conventions)
+  - [Error Handling](#error-handling)
+  - [Avoid Over-Engineering](#avoid-over-engineering)
 
 ## Getting Started
 
@@ -157,28 +164,91 @@ Tests are **idempotent** - they skip steps already completed.
 - Tests interact with external state (Kind cluster, Azure resources)
 - Designed for workflow validation, not unit testing
 
-## Code Style
+## Coding Guidelines
 
 ### Go Code
 
 - Follow standard Go formatting (`gofmt`)
 - Use meaningful variable names
 - Add comments for non-obvious logic
-- Handle errors explicitly
+- Handle errors explicitly - never ignore errors silently
+- Prefer early returns to reduce nesting
 
 ### Test Code
 
+All test functions must follow this pattern:
+
+```go
+func TestPhase_Specific(t *testing.T) {
+    config := NewTestConfig()
+
+    // Validate prerequisites
+    if !prerequisitesMet {
+        t.Skipf("Prerequisites not met: reason")
+    }
+
+    // Perform test action
+    // Use t.Logf() for progress
+    // Use t.Errorf() for non-fatal errors
+    // Use t.Fatalf() for fatal errors that prevent continuation
+}
+```
+
+Key practices:
 - Use `t.Helper()` in helper functions
 - Use `t.Logf()` for progress information
-- Use `t.Errorf()` for non-fatal errors
-- Use `t.Fatalf()` for fatal errors
+- Use `t.Errorf()` for non-fatal errors (test continues)
+- Use `t.Fatalf()` for fatal errors (test stops)
 - Use `t.Skipf()` when prerequisites aren't met
 
 ### Configuration
 
-- Always use `GetEnvOrDefault()` for config values
-- Document new environment variables
+- Always use `GetEnvOrDefault()` for config values - never hardcode
+- Document new environment variables in README.md and CLAUDE.md
 - Provide sensible defaults
+- Use the `TestConfig` struct from `test/config.go`
+
+### Helper Functions
+
+Use existing helpers from `test/helpers.go` instead of reimplementing:
+
+| Helper | Purpose |
+|--------|---------|
+| `CommandExists(cmd)` | Check if CLI tool is available |
+| `RunCommand(t, name, args...)` | Execute shell commands with test context |
+| `SetEnvVar(t, key, value)` | Set env var with automatic cleanup |
+| `FileExists(path)` / `DirExists(path)` | Path validation |
+| `GetEnvOrDefault(key, default)` | Config value resolution |
+| `ValidateDomainPrefix(user, env)` | Validate domain prefix length (max 15 chars) |
+| `ValidateRFC1123Name(name, varName)` | Validate RFC 1123 subdomain naming |
+
+### Naming Conventions
+
+**RFC 1123 Compliance**: These variables must be RFC 1123 compliant (lowercase alphanumeric and hyphens only, must start/end with alphanumeric):
+- `CAPZ_USER`
+- `CS_CLUSTER_NAME`
+- `DEPLOYMENT_ENV`
+- `TEST_NAMESPACE`
+
+### Error Handling
+
+```go
+// Good - explicit error handling with context
+output, err := RunCommand(t, "kubectl", "get", "pods")
+if err != nil {
+    t.Fatalf("Failed to get pods: %v", err)
+}
+
+// Bad - ignoring errors
+output, _ := RunCommand(t, "kubectl", "get", "pods")
+```
+
+### Avoid Over-Engineering
+
+- Only make changes directly requested or clearly necessary
+- Don't add features, refactor code, or make "improvements" beyond what was asked
+- Don't add error handling for scenarios that can't happen
+- Three similar lines of code is better than a premature abstraction
 
 ## Getting Help
 
