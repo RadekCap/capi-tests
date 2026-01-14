@@ -1,4 +1,4 @@
-.PHONY: test _check-dep _setup _cluster _generate-yamls _deploy-crds _verify test-all _test-all-impl clean clean-all clean-azure help summary
+.PHONY: test _check-dep _setup _cluster _generate-yamls _deploy-crds _verify _delete test-all _test-all-impl clean clean-all clean-azure help summary
 
 # Default values
 # Extract CAPZ_USER default from Go config to maintain single source of truth
@@ -41,6 +41,7 @@ CLUSTER_TIMEOUT ?= 30m
 GENERATE_YAMLS_TIMEOUT ?= 20m
 DEPLOY_CRS_TIMEOUT ?= 60m
 VERIFY_TIMEOUT ?= 20m
+DELETION_TIMEOUT ?= 60m
 
 # Results directory configuration
 # Create unique results directory for each test run using timestamp
@@ -80,6 +81,7 @@ help: ## Display this help message
 	@echo "  4. make _generate-yamls  # Generate script for resource creation (yaml)"
 	@echo "  5. make _deploy-crs      # Deploy CRs and verify deployment"
 	@echo "  6. make _verify          # Verify deployed cluster"
+	@echo "  7. make _delete          # Delete workload cluster and verify cleanup"
 
 test: _check-dep ## Run check dependencies tests only
 
@@ -200,6 +202,26 @@ _verify: check-gotestsum
 		echo "✅ Cluster Verification Tests completed"; \
 	else \
 		echo "❌ Cluster Verification Tests failed"; \
+	fi; \
+	echo ""; \
+	exit $$EXIT_CODE
+
+_delete: check-gotestsum
+	@mkdir -p $(RESULTS_DIR)
+	@echo "=== Running Cluster Deletion Tests ==="
+	@echo "Results will be saved to: $(RESULTS_DIR)"
+	@echo ""
+	@EXIT_CODE=0; \
+	$(GOTESTSUM) --junitfile=$(RESULTS_DIR)/junit-delete.xml -- $(TEST_VERBOSITY) ./test -count=1 -run TestDeletion -timeout $(DELETION_TIMEOUT) || EXIT_CODE=$$?; \
+	mkdir -p $(LATEST_RESULTS_DIR); \
+	cp -f $(RESULTS_DIR)/*.xml $(LATEST_RESULTS_DIR)/ 2>/dev/null || true; \
+	echo ""; \
+	echo "Test results saved to: $(RESULTS_DIR)/junit-delete.xml"; \
+	echo "Latest results copied to: $(LATEST_RESULTS_DIR)/"; \
+	if [ $$EXIT_CODE -eq 0 ]; then \
+		echo "✅ Cluster Deletion Tests completed"; \
+	else \
+		echo "❌ Cluster Deletion Tests failed"; \
 	fi; \
 	echo ""; \
 	exit $$EXIT_CODE
