@@ -83,8 +83,8 @@ type TestConfig struct {
 func NewTestConfig() *TestConfig {
 	return &TestConfig{
 		// Repository defaults
-		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/RadekCap/cluster-api-installer.git"),
-		RepoBranch: GetEnvOrDefault("ARO_REPO_BRANCH", "ARO-ASO"),
+		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/marek-veber/cluster-api-installer"),
+		RepoBranch: GetEnvOrDefault("ARO_REPO_BRANCH", "add-aro-hcp-scripts"),
 		RepoDir:    getDefaultRepoDir(),
 
 		// Cluster defaults
