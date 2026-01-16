@@ -376,9 +376,27 @@ Always run `make test` (check dependencies only) locally. Full tests should run 
 
 ## Claude Code Slash Commands
 
-This repository includes custom slash commands in `.claude/commands/` for common workflows. These commands are version-controlled and automatically available after cloning.
+This repository uses two sources for slash commands:
 
-### Available Commands
+1. **Global commands** from [RadekCap/claude-commands](https://github.com/RadekCap/claude-commands) - Generic commands that work across all repos (symlinked to `~/.claude/commands/`)
+2. **Repo-specific commands** in `.claude/commands/` - Commands specific to this test suite
+
+### Global Commands (from claude-commands repo)
+
+These commands are available in all repos via the shared `~/.claude/commands/` symlink:
+
+| Command | Description |
+|---------|-------------|
+| `/implement-issue <number>` | Analyze GitHub issue and create PR with implementation |
+| `/prepare-worktree <number>` | Create isolated git worktree for an issue |
+| `/close-worktree <number>` | Clean up worktree after PR is merged |
+| `/sync-main` | Sync main branch and optionally create feature branch |
+| `/copilot-review <pr>` | Process GitHub Copilot review findings |
+| `/context` | Show current session context (dir, branch, todos) |
+
+See the [claude-commands README](https://github.com/RadekCap/claude-commands) for setup instructions and full documentation.
+
+### Repo-Specific Commands
 
 #### `/add-test-phase`
 Scaffold a new test phase file following established patterns.
@@ -406,27 +424,6 @@ Review test files for compliance with repo patterns.
 
 **Example**: `/review-test test/03_cluster_test.go`
 
-#### `/copilot-review`
-Process GitHub Copilot code review findings for a PR and automatically resolve review threads.
-
-**Use when**: Responding to automated code review comments
-
-**What it does**:
-- Fetches all Copilot review threads via GraphQL API (includes thread IDs)
-- Analyzes each finding against repo patterns (CLAUDE.md)
-- Implements accepted fixes or provides denial rationale
-- Posts individual replies to each finding
-- **Automatically resolves review threads** using GraphQL `resolveReviewThread` mutation
-- Commits changes if implementations made
-
-**Example**: `/copilot-review 123`
-
-**Technical details**:
-- Uses GraphQL to fetch review threads (REST API doesn't include thread IDs)
-- Thread resolution requires Repository > Contents or Pull Requests permissions
-- Gracefully handles already-resolved threads and resolution failures
-- Replies always post even if thread resolution fails (graceful degradation)
-
 #### `/update-docs`
 Update documentation after code changes.
 
@@ -453,90 +450,6 @@ Systematically debug test failures.
 - Provides prevention tips
 
 **Example**: `/troubleshoot`
-
-#### `/implement-issue`
-Analyze a GitHub issue and automatically create a pull request with the implementation.
-
-**Use when**: You want to quickly implement a fix for an open GitHub issue
-
-**What it does**:
-- Fetches issue details from GitHub
-- Analyzes the issue to understand requirements
-- Creates a feature branch with appropriate naming
-- Implements the fix following repo patterns
-- Adds tests for new functionality
-- Runs tests to verify changes
-- Commits with descriptive message
-- Creates a pull request with comprehensive description
-- Links PR to issue with "Fixes #<number>"
-
-**Example**: `/implement-issue 72`
-
-**Features**:
-- Follows CLAUDE.md patterns and guidelines
-- Uses TodoWrite to track implementation progress
-- Handles git operations (branch creation, commits, push)
-- Validates tests pass before committing
-- Generates well-formatted commit messages and PR descriptions
-- Automatically references issue in commit and PR
-
-#### `/prepare-worktree`
-Create a git worktree for implementing a GitHub issue in an isolated directory.
-
-**Use when**: You want to work on an issue without affecting your current work (e.g., while tests are running)
-
-**What it does**:
-- Fetches issue details from GitHub
-- Creates a git worktree with a branch named after the issue
-- Worktree is created as a sibling directory (e.g., `../CAPZTests-issue-263-...`)
-- Copies the `cd` command to clipboard (macOS)
-- Prints clear next steps
-
-**Example**: `/prepare-worktree 263`
-
-**Workflow**:
-1. Run `/prepare-worktree 263` in your main worktree
-2. Open new terminal, paste command from clipboard
-3. Run `/implement-issue 263` in the new Claude instance
-4. After PR is merged, clean up with `git worktree remove <path>`
-
-**Why use this**:
-- Keep your main branch clean while working on issues
-- Work on multiple issues in parallel
-- Don't interrupt long-running tests or builds
-
-#### `/close-worktree`
-Clean up a git worktree after the associated PR has been merged.
-
-**Use when**: After your PR is merged and you want to clean up the worktree
-
-**What it does**:
-- Finds the worktree for the given issue number
-- **Verifies PR was merged** before proceeding (safety check)
-- Warns about uncommitted changes or unpushed commits
-- Removes the worktree directory
-- Deletes the branch (if merged)
-- Prunes stale worktree references
-
-**Example**: `/close-worktree 263`
-
-**Safety checks**:
-- PR merged? → Prevents closing before work is accepted
-- Uncommitted changes? → Prevents losing local edits
-- Unpushed commits? → Warns about commits not on remote
-
-**Complete worktree workflow**:
-```bash
-# Instance 1: Prepare
-/prepare-worktree 263
-
-# Instance 2: Implement (new terminal)
-cd ../CAPZTests-issue-263-... && claude
-/implement-issue 263
-
-# Instance 1: Cleanup (after PR merged)
-/close-worktree 263
-```
 
 ### Using Slash Commands
 
