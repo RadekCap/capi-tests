@@ -16,7 +16,7 @@ Comprehensive test suite for Azure Red Hat OpenShift (ARO) deployment using Clus
 
 This repository contains a Go-based test suite that validates the complete ARO cluster deployment workflow on Azure using CAPZ. The tests verify each step of the deployment process, from prerequisite verification to final cluster validation.
 
-The test suite is designed to work with the [cluster-api-installer](https://github.com/RadekCap/cluster-api-installer) ARO-CAPZ implementation.
+The test suite is designed to work with the [cluster-api-installer](https://github.com/stolostron/cluster-api-installer) ARO-CAPZ implementation.
 
 ## What This Tests
 
@@ -80,8 +80,8 @@ Tests are configured via environment variables:
 
 ### Repository Configuration
 
-- `ARO_REPO_URL` - cluster-api-installer repository URL (default: `https://github.com/RadekCap/cluster-api-installer.git`)
-- `ARO_REPO_BRANCH` - Branch to use (default: `ARO-ASO`)
+- `ARO_REPO_URL` - cluster-api-installer repository URL (default: `https://github.com/stolostron/cluster-api-installer`)
+- `ARO_REPO_BRANCH` - Branch to use (default: `main`)
 - `ARO_REPO_DIR` - Local repository directory (default: `/tmp/cluster-api-installer-aro`)
 
 ### Cluster Configuration
@@ -129,7 +129,7 @@ The test suite validates naming compliance during the Check Dependencies phase (
 
 ### Test Behavior
 
-- `DEPLOYMENT_TIMEOUT` - Control plane deployment timeout (default: `45m`). Use Go duration format: `1h`, `45m`, `90m`, etc.
+- `DEPLOYMENT_TIMEOUT` - Control plane deployment timeout (default: `60m`). Use Go duration format: `1h`, `45m`, `90m`, etc.
 - `TEST_VERBOSITY` - Test output verbosity (default: `-v` for verbose). Set to empty string for quiet output: `TEST_VERBOSITY= make test`
 
 ## Getting Started
