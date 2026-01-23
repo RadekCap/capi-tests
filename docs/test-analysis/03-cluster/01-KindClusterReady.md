@@ -57,7 +57,7 @@ The `deploy-charts-kind-capz.sh` script calls 3 sub-scripts:
 deploy-charts-kind-capz.sh
 ├── 1. setup-kind-cluster.sh
 ├── 2. deploy-charts.sh (cluster-api, cluster-api-provider-azure)
-└── 3. wait-for-controllers.sh (capi, capz)
+└── 3. wait-for-controllers.sh (capi, capz, aso)
 ```
 
 ### Step 1: setup-kind-cluster.sh
@@ -81,7 +81,7 @@ Loops over each chart (`cluster-api`, `cluster-api-provider-azure`):
 
 ### Step 3: wait-for-controllers.sh
 
-For each controller (`capi`, `capz`):
+Waits for controllers to become available. In Kind mode, waits for 3 controllers:
 
 | Command | Purpose |
 |---------|---------|
@@ -89,6 +89,9 @@ For each controller (`capi`, `capz`):
 | `kubectl -n capi-system wait deployment/capi-controller-manager --for condition=Available=True --timeout=10m` | Wait for CAPI ready |
 | `kubectl events -n capz-system --watch &` | Stream events (background) |
 | `kubectl -n capz-system wait deployment/capz-controller-manager --for condition=Available=True --timeout=10m` | Wait for CAPZ ready |
+| `kubectl -n capz-system wait deployment/azureserviceoperator-controller-manager --for condition=Available=True --timeout=10m` | Wait for ASO ready |
+
+**Note:** In non-Kind/K8S mode (e.g., OpenShift), the script also waits for `mce-capi-webhook-config` deployment.
 
 ---
 
@@ -104,5 +107,6 @@ For each controller (`capi`, `capz`):
 7.  helm template charts/cluster-api-provider-azure | kubectl apply ...
 8.  kubectl wait deployment/capi-controller-manager ...
 9.  kubectl wait deployment/capz-controller-manager ...
-10. kubectl --context kind-<name> get nodes
+10. kubectl wait deployment/azureserviceoperator-controller-manager ...
+11. kubectl --context kind-<name> get nodes
 ```

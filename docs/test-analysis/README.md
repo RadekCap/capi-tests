@@ -23,7 +23,9 @@ make test-all
     │
     ├── 6. make _verify        Cluster Verification
     │
-    └── 7. make _delete        Cluster Deletion
+    ├── 7. make _delete        Cluster Deletion
+    │
+    └── 8. make _cleanup       Cleanup Validation
 ```
 
 ---
@@ -32,15 +34,16 @@ make test-all
 
 | Phase | Make Target | Test File | Tests | Timeout | Description |
 |-------|-------------|-----------|-------|---------|-------------|
-| 1 | [_check-dep](01-check-dependencies/00-Overview.md) | `01_check_dependencies_test.go` | 12 | 2m | Verify tools, authentication, and naming |
+| 1 | [_check-dep](01-check-dependencies/00-Overview.md) | `01_check_dependencies_test.go` | 16 | 2m | Verify tools, authentication, and naming |
 | 2 | [_setup](02-setup/00-Overview.md) | `02_setup_test.go` | 3 | 2m | Clone repository, verify scripts |
 | 3 | [_cluster](03-cluster/00-Overview.md) | `03_cluster_test.go` | 7 | 30m | Deploy Kind cluster with controllers |
 | 4 | [_generate-yamls](04-generate-yamls/00-Overview.md) | `04_generate_yamls_test.go` | 4 | 20m | Generate YAML manifests |
 | 5 | [_deploy-crs](05-deploy-crs/00-Overview.md) | `05_deploy_crs_test.go` | 7 | 40m | Apply CRs, wait for deployment |
 | 6 | [_verify](06-verification/00-Overview.md) | `06_verification_test.go` | 7 | 20m | Validate workload cluster |
-| 7 | _delete | `07_deletion_test.go` | 6 | 60m | Delete workload cluster and verify cleanup |
+| 7 | _delete | `07_deletion_test.go` | 6 | 60m | Delete workload cluster |
+| 8 | _cleanup | `08_cleanup_test.go` | 18 | 10m | Validate cleanup operations completed |
 
-**Total: 46 tests across 7 phases**
+**Total: 68 tests across 8 phases**
 
 ---
 
@@ -59,7 +62,7 @@ make test-all
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              PHASE 2: SETUP                                  │
-│  Clone: git clone -b ARO-ASO https://github.com/.../cluster-api-installer   │
+│  Clone: git clone -b main https://github.com/stolostron/cluster-api-installer│
 │  Verify: scripts/deploy-charts-kind-capz.sh, doc/aro-hcp-scripts/aro-hcp-gen│
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
@@ -107,6 +110,14 @@ make test-all
 │  Verify: Check AROControlPlane, MachinePool deleted                         │
 │  Azure: Verify Azure resource group cleanup                                  │
 └─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           PHASE 8: CLEANUP                                   │
+│  Validate: Verify all cleanup operations completed successfully             │
+│  Check: Workload cluster, control plane, machine pools deleted              │
+│  Azure: Verify resource group and orphaned resources cleaned up             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -127,6 +138,7 @@ make _generate-yamls # Phase 4
 make _deploy-crs     # Phase 5
 make _verify         # Phase 6
 make _delete         # Phase 7
+make _cleanup        # Phase 8
 ```
 
 ### Key Environment Variables
@@ -136,7 +148,7 @@ make _delete         # Phase 7
 | `MANAGEMENT_CLUSTER_NAME` | `capz-tests-stage` | Kind cluster name |
 | `WORKLOAD_CLUSTER_NAME` | `capz-tests-cluster` | ARO cluster name |
 | `ARO_REPO_DIR` | `/tmp/cluster-api-installer-aro` | Repository path |
-| `DEPLOYMENT_TIMEOUT` | `45m` | Control plane wait timeout |
+| `DEPLOYMENT_TIMEOUT` | `60m` | Control plane wait timeout |
 | `DEPLOYMENT_ENV` | `stage` | Environment identifier |
 | `REGION` | `uksouth` | Azure region |
 | `CAPZ_USER` | `rcap` | User identifier (RFC 1123 compliant) |
