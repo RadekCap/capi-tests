@@ -200,3 +200,162 @@ func TestGetExpectedFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestNewAzureProvider(t *testing.T) {
+	p := NewAzureProvider("capz-system")
+
+	if p.Name != "azure" {
+		t.Errorf("Expected provider name 'azure', got %q", p.Name)
+	}
+
+	// Verify controllers
+	if len(p.Controllers) != 2 {
+		t.Fatalf("Expected 2 controllers, got %d", len(p.Controllers))
+	}
+	if p.Controllers[0].DisplayName != "CAPZ" {
+		t.Errorf("Expected first controller 'CAPZ', got %q", p.Controllers[0].DisplayName)
+	}
+	if p.Controllers[0].DeploymentName != "capz-controller-manager" {
+		t.Errorf("Expected CAPZ deployment name, got %q", p.Controllers[0].DeploymentName)
+	}
+	if p.Controllers[1].DisplayName != "ASO" {
+		t.Errorf("Expected second controller 'ASO', got %q", p.Controllers[1].DisplayName)
+	}
+	if p.Controllers[1].DeploymentName != "azureserviceoperator-controller-manager" {
+		t.Errorf("Expected ASO deployment name, got %q", p.Controllers[1].DeploymentName)
+	}
+
+	// Verify webhooks
+	if len(p.Webhooks) != 2 {
+		t.Fatalf("Expected 2 webhooks, got %d", len(p.Webhooks))
+	}
+	if p.Webhooks[0].ServiceName != "capz-webhook-service" {
+		t.Errorf("Expected CAPZ webhook service, got %q", p.Webhooks[0].ServiceName)
+	}
+	if p.Webhooks[1].ServiceName != "azureserviceoperator-webhook-service" {
+		t.Errorf("Expected ASO webhook service, got %q", p.Webhooks[1].ServiceName)
+	}
+
+	// Verify credential secret
+	if p.CredentialSecret == nil {
+		t.Fatal("Expected credential secret to be defined")
+	}
+	if p.CredentialSecret.Name != "aso-controller-settings" {
+		t.Errorf("Expected aso-controller-settings, got %q", p.CredentialSecret.Name)
+	}
+	if len(p.CredentialSecret.RequiredFields) != 4 {
+		t.Errorf("Expected 4 required fields, got %d", len(p.CredentialSecret.RequiredFields))
+	}
+
+	// Verify deployment charts
+	if len(p.DeploymentCharts) != 1 || p.DeploymentCharts[0] != "cluster-api-provider-azure" {
+		t.Errorf("Expected [cluster-api-provider-azure], got %v", p.DeploymentCharts)
+	}
+
+	// Verify MCE component
+	if p.MCEComponentName != "cluster-api-provider-azure-preview" {
+		t.Errorf("Expected MCE component name, got %q", p.MCEComponentName)
+	}
+}
+
+func TestNewAzureProvider_Namespace(t *testing.T) {
+	p := NewAzureProvider("custom-namespace")
+
+	// Verify namespace propagates to all controllers, webhooks, and credential secret
+	for _, ctrl := range p.Controllers {
+		if ctrl.Namespace != "custom-namespace" {
+			t.Errorf("Controller %s namespace = %q, expected 'custom-namespace'", ctrl.DisplayName, ctrl.Namespace)
+		}
+	}
+	for _, wh := range p.Webhooks {
+		if wh.Namespace != "custom-namespace" {
+			t.Errorf("Webhook %s namespace = %q, expected 'custom-namespace'", wh.DisplayName, wh.Namespace)
+		}
+	}
+	if p.CredentialSecret.Namespace != "custom-namespace" {
+		t.Errorf("Credential secret namespace = %q, expected 'custom-namespace'", p.CredentialSecret.Namespace)
+	}
+}
+
+func TestTestConfig_InfraProviders(t *testing.T) {
+	config := NewTestConfig()
+
+	if len(config.InfraProviders) != 1 {
+		t.Fatalf("Expected 1 infrastructure provider, got %d", len(config.InfraProviders))
+	}
+	if config.InfraProviders[0].Name != "azure" {
+		t.Errorf("Expected azure provider, got %q", config.InfraProviders[0].Name)
+	}
+}
+
+func TestTestConfig_AllControllers(t *testing.T) {
+	config := NewTestConfig()
+	controllers := config.AllControllers()
+
+	// Should have CAPI core + 2 Azure provider controllers = 3 total
+	if len(controllers) != 3 {
+		t.Fatalf("Expected 3 controllers (CAPI + CAPZ + ASO), got %d", len(controllers))
+	}
+
+	// First should be CAPI core
+	if controllers[0].DisplayName != "CAPI" {
+		t.Errorf("Expected first controller to be CAPI, got %q", controllers[0].DisplayName)
+	}
+	if controllers[0].DeploymentName != CAPIControllerDeployment {
+		t.Errorf("Expected CAPI deployment name %q, got %q", CAPIControllerDeployment, controllers[0].DeploymentName)
+	}
+
+	// Second and third should be provider controllers
+	if controllers[1].DisplayName != "CAPZ" {
+		t.Errorf("Expected second controller to be CAPZ, got %q", controllers[1].DisplayName)
+	}
+	if controllers[2].DisplayName != "ASO" {
+		t.Errorf("Expected third controller to be ASO, got %q", controllers[2].DisplayName)
+	}
+}
+
+func TestTestConfig_AllWebhooks(t *testing.T) {
+	config := NewTestConfig()
+	webhooks := config.AllWebhooks()
+
+	// Should have CAPI core + 2 Azure provider webhooks = 3 total
+	if len(webhooks) != 3 {
+		t.Fatalf("Expected 3 webhooks (CAPI + CAPZ + ASO), got %d", len(webhooks))
+	}
+
+	if webhooks[0].DisplayName != "CAPI" {
+		t.Errorf("Expected first webhook to be CAPI, got %q", webhooks[0].DisplayName)
+	}
+	if webhooks[0].ServiceName != CAPIWebhookService {
+		t.Errorf("Expected CAPI webhook service %q, got %q", CAPIWebhookService, webhooks[0].ServiceName)
+	}
+}
+
+func TestTestConfig_AllNamespaces(t *testing.T) {
+	config := NewTestConfig()
+	namespaces := config.AllNamespaces()
+
+	// Should have at least CAPI namespace
+	if len(namespaces) == 0 {
+		t.Fatal("Expected at least 1 namespace")
+	}
+	if namespaces[0] != config.CAPINamespace {
+		t.Errorf("Expected first namespace to be CAPI namespace %q, got %q", config.CAPINamespace, namespaces[0])
+	}
+}
+
+func TestTestConfig_DeploymentChartArgs(t *testing.T) {
+	config := NewTestConfig()
+	args := config.DeploymentChartArgs()
+
+	// Should start with CAPI core chart
+	if len(args) < 2 {
+		t.Fatalf("Expected at least 2 chart args (CAPI + provider), got %d", len(args))
+	}
+	if args[0] != CAPIDeploymentChartName {
+		t.Errorf("Expected first chart to be %q, got %q", CAPIDeploymentChartName, args[0])
+	}
+	if args[1] != "cluster-api-provider-azure" {
+		t.Errorf("Expected second chart to be 'cluster-api-provider-azure', got %q", args[1])
+	}
+}

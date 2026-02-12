@@ -1736,23 +1736,13 @@ func GetComponentVersions(t *testing.T, kubeContext string) []ComponentVersion {
 	// Get namespace configuration
 	config := NewTestConfig()
 
-	components := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPZ (Cluster API Provider Azure)", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO (Azure Service Operator)", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-		{"CAPI (Cluster API)", config.CAPINamespace, "capi-controller-manager"},
-	}
-
 	var versions []ComponentVersion
 
-	for _, comp := range components {
-		image, err := GetDeploymentImage(t, kubeContext, comp.namespace, comp.deployment)
+	for _, ctrl := range config.AllControllers() {
+		image, err := GetDeploymentImage(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName)
 		if err != nil {
 			versions = append(versions, ComponentVersion{
-				Name:    comp.name,
+				Name:    ctrl.DisplayName,
 				Version: "not found",
 				Image:   "N/A",
 			})
@@ -1760,7 +1750,7 @@ func GetComponentVersions(t *testing.T, kubeContext string) []ComponentVersion {
 		}
 
 		versions = append(versions, ComponentVersion{
-			Name:    comp.name,
+			Name:    ctrl.DisplayName,
 			Version: extractVersionFromImage(image),
 			Image:   image,
 		})
@@ -2092,28 +2082,16 @@ func SaveControllerLogs(t *testing.T, kubeContext, namespace, deploymentName, co
 }
 
 // GetAllControllerLogSummaries retrieves log summaries for all key controllers.
-// Returns a slice of ControllerLogSummary for CAPI, CAPZ, and ASO controllers.
+// Returns a slice of ControllerLogSummary for CAPI and all infrastructure provider controllers.
 func GetAllControllerLogSummaries(t *testing.T, kubeContext string) []ControllerLogSummary {
 	t.Helper()
 
-	// Define controllers to check (same as in GetComponentVersions)
-	// Get namespace configuration
 	config := NewTestConfig()
-
-	controllers := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPI", config.CAPINamespace, "capi-controller-manager"},
-		{"CAPZ", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-	}
 
 	var summaries []ControllerLogSummary
 
-	for _, ctrl := range controllers {
-		summary := SummarizeControllerLogs(t, kubeContext, ctrl.namespace, ctrl.deployment, ctrl.name)
+	for _, ctrl := range config.AllControllers() {
+		summary := SummarizeControllerLogs(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName, ctrl.DisplayName)
 		summaries = append(summaries, summary)
 	}
 
@@ -2189,30 +2167,18 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 func SaveAllControllerLogs(t *testing.T, kubeContext, outputDir string, summaries []ControllerLogSummary) []ControllerLogSummary {
 	t.Helper()
 
-	// Define controllers (same list as in GetAllControllerLogSummaries)
-	// Get namespace configuration
 	config := NewTestConfig()
 
-	controllers := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPI", config.CAPINamespace, "capi-controller-manager"},
-		{"CAPZ", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-	}
-
-	// Create a map for quick lookup
-	controllerMap := make(map[string]struct{ namespace, deployment string })
-	for _, c := range controllers {
-		controllerMap[c.name] = struct{ namespace, deployment string }{c.namespace, c.deployment}
+	// Create a map for quick lookup from display name to controller definition
+	controllerMap := make(map[string]ControllerDef)
+	for _, ctrl := range config.AllControllers() {
+		controllerMap[ctrl.DisplayName] = ctrl
 	}
 
 	// Update summaries with log file paths
 	for i := range summaries {
 		if ctrl, ok := controllerMap[summaries[i].Name]; ok {
-			logFile, err := SaveControllerLogs(t, kubeContext, ctrl.namespace, ctrl.deployment, summaries[i].Name, outputDir)
+			logFile, err := SaveControllerLogs(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName, summaries[i].Name, outputDir)
 			if err != nil {
 				t.Logf("Warning: Failed to save logs for %s: %v", summaries[i].Name, err)
 			} else {

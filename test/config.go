@@ -38,8 +38,108 @@ const (
 
 	// MCE component names as used in mce.spec.overrides.components
 	MCEComponentCAPI = "cluster-api"
+	// Deprecated: Use config.InfraProviders[i].MCEComponentName instead.
 	MCEComponentCAPZ = "cluster-api-provider-azure-preview"
+
+	// DefaultControllerTimeout is the default timeout for waiting for a controller to become ready.
+	DefaultControllerTimeout = 10 * time.Minute
+
+	// CAPI core constants (provider-independent)
+
+	// CAPIControllerDeployment is the CAPI core controller deployment name.
+	CAPIControllerDeployment = "capi-controller-manager"
+
+	// CAPIWebhookService is the CAPI core webhook service name.
+	CAPIWebhookService = "capi-webhook-service"
+
+	// CAPIWebhookPort is the CAPI core webhook service port.
+	CAPIWebhookPort = 443
+
+	// CAPIPodSelector is the label selector for CAPI core pods.
+	CAPIPodSelector = "cluster.x-k8s.io/provider=cluster-api"
+
+	// CAPIDeploymentChartName is the Helm chart argument for CAPI core.
+	CAPIDeploymentChartName = "cluster-api"
 )
+
+// ControllerDef describes a controller deployment to validate.
+type ControllerDef struct {
+	DisplayName    string        // human-readable name (e.g., "CAPZ", "ASO")
+	Namespace      string        // Kubernetes namespace (e.g., "capz-system")
+	DeploymentName string        // deployment name (e.g., "capz-controller-manager")
+	PodSelector    string        // label selector for pods (e.g., "cluster.x-k8s.io/provider=infrastructure-azure")
+	Timeout        time.Duration // readiness timeout (0 = DefaultControllerTimeout)
+}
+
+// WebhookDef describes a webhook service to validate.
+type WebhookDef struct {
+	DisplayName string // human-readable name (e.g., "CAPZ", "ASO")
+	Namespace   string // Kubernetes namespace
+	ServiceName string // Kubernetes service name (e.g., "capz-webhook-service")
+	Port        int    // service port (e.g., 443)
+}
+
+// CredentialSecretDef describes a provider's credential secret.
+type CredentialSecretDef struct {
+	Name            string   // secret name (e.g., "aso-controller-settings")
+	Namespace       string   // namespace containing the secret
+	RequiredFields  []string // fields that must be present and non-empty in the secret
+	RequiredEnvVars []string // env vars that must be set for this check to run (skip if missing)
+}
+
+// InfraProvider defines an infrastructure provider's configuration.
+// Each provider has controllers, webhooks, and optionally a credential secret.
+type InfraProvider struct {
+	Name             string               // provider identifier (e.g., "azure")
+	Controllers      []ControllerDef      // controllers to validate
+	Webhooks         []WebhookDef         // webhooks to validate
+	CredentialSecret *CredentialSecretDef // nil if no credential secret needed
+	DeploymentCharts []string             // chart args for deploy-charts.sh
+	MCEComponentName string               // MCE component name for this provider
+}
+
+// NewAzureProvider returns the InfraProvider configuration for Azure (CAPZ/ASO).
+// The namespace parameter is the resolved namespace for CAPZ/ASO controllers
+// (e.g., "capz-system" for Kind mode, "multicluster-engine" for MCE mode).
+func NewAzureProvider(namespace string) InfraProvider {
+	return InfraProvider{
+		Name: "azure",
+		Controllers: []ControllerDef{
+			{
+				DisplayName:    "CAPZ",
+				Namespace:      namespace,
+				DeploymentName: "capz-controller-manager",
+				PodSelector:    "cluster.x-k8s.io/provider=infrastructure-azure",
+			},
+			{
+				DisplayName:    "ASO",
+				Namespace:      namespace,
+				DeploymentName: "azureserviceoperator-controller-manager",
+				PodSelector:    "app.kubernetes.io/name=azure-service-operator",
+			},
+		},
+		Webhooks: []WebhookDef{
+			{DisplayName: "CAPZ", Namespace: namespace, ServiceName: "capz-webhook-service", Port: 443},
+			{DisplayName: "ASO", Namespace: namespace, ServiceName: "azureserviceoperator-webhook-service", Port: 443},
+		},
+		CredentialSecret: &CredentialSecretDef{
+			Name:      "aso-controller-settings",
+			Namespace: namespace,
+			RequiredFields: []string{
+				"AZURE_TENANT_ID",
+				"AZURE_SUBSCRIPTION_ID",
+				"AZURE_CLIENT_ID",
+				"AZURE_CLIENT_SECRET",
+			},
+			RequiredEnvVars: []string{
+				"AZURE_CLIENT_ID",
+				"AZURE_CLIENT_SECRET",
+			},
+		},
+		DeploymentCharts: []string{"cluster-api-provider-azure"},
+		MCEComponentName: "cluster-api-provider-azure-preview",
+	}
+}
 
 var (
 	defaultRepoDir     string
@@ -154,6 +254,13 @@ type TestConfig struct {
 	DeploymentTimeout    time.Duration
 	ASOControllerTimeout time.Duration
 
+	// Infrastructure providers
+	// InfraProviders holds the list of infrastructure provider configurations.
+	// Each provider defines its controllers, webhooks, and credential secrets.
+	// Currently initialized with Azure (CAPZ/ASO). Additional providers (CAPA, CAPM3, etc.)
+	// can be added via environment configuration or factory functions.
+	InfraProviders []InfraProvider
+
 	// MCE (MultiClusterEngine) configuration
 	// MCEAutoEnable controls whether to automatically enable MCE CAPI/CAPZ components
 	// if they are not found on an external cluster. Default: true when IsExternalCluster().
@@ -173,10 +280,22 @@ func NewTestConfig() *TestConfig {
 		_ = os.Setenv("USE_K8S", "true") // #nosec G104 - os.Setenv with fixed key/value cannot fail in practice
 	}
 
+	// Resolve namespaces before creating providers (providers need the resolved namespace)
+	capzNamespace := getControllerNamespace("CAPZ_NAMESPACE", "capz-system")
+
+	// Build Azure provider with ASO controller timeout
+	azureProvider := NewAzureProvider(capzNamespace)
+	asoTimeout := parseASOControllerTimeout()
+	for i := range azureProvider.Controllers {
+		if azureProvider.Controllers[i].DisplayName == "ASO" {
+			azureProvider.Controllers[i].Timeout = asoTimeout
+		}
+	}
+
 	return &TestConfig{
 		// Repository defaults
-		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/stolostron/cluster-api-installer"),
-		RepoBranch: GetEnvOrDefault("ARO_REPO_BRANCH", "main"),
+		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/marek-verber/cluster-api-installer"),
+		RepoBranch: GetEnvOrDefault("ARO_REPO_BRANCH", "capi-tests"),
 		RepoDir:    getDefaultRepoDir(),
 
 		// Cluster defaults
@@ -190,7 +309,7 @@ func NewTestConfig() *TestConfig {
 		CAPZUser:                 GetEnvOrDefault("CAPZ_USER", DefaultCAPZUser),
 		WorkloadClusterNamespace: getWorkloadClusterNamespace(),
 		CAPINamespace:            getControllerNamespace("CAPI_NAMESPACE", "capi-system"),
-		CAPZNamespace:            getControllerNamespace("CAPZ_NAMESPACE", "capz-system"),
+		CAPZNamespace:            capzNamespace,
 
 		// External cluster
 		UseKubeconfig: useKubeconfig,
@@ -205,7 +324,10 @@ func NewTestConfig() *TestConfig {
 
 		// Timeouts
 		DeploymentTimeout:    parseDeploymentTimeout(),
-		ASOControllerTimeout: parseASOControllerTimeout(),
+		ASOControllerTimeout: asoTimeout,
+
+		// Infrastructure providers
+		InfraProviders: []InfraProvider{azureProvider},
 
 		// MCE configuration
 		MCEAutoEnable:        parseMCEAutoEnable(useKubeconfig),
@@ -381,4 +503,54 @@ func (c *TestConfig) GetKubeContext() string {
 		return ExtractCurrentContext(c.UseKubeconfig)
 	}
 	return fmt.Sprintf("kind-%s", c.ManagementClusterName)
+}
+
+// AllControllers returns all infrastructure controllers across all providers,
+// prepended with the CAPI core controller. Used for version queries, log collection,
+// and readiness checks that need to iterate over every controller.
+func (c *TestConfig) AllControllers() []ControllerDef {
+	controllers := []ControllerDef{
+		{DisplayName: "CAPI", Namespace: c.CAPINamespace, DeploymentName: CAPIControllerDeployment, PodSelector: CAPIPodSelector},
+	}
+	for _, p := range c.InfraProviders {
+		controllers = append(controllers, p.Controllers...)
+	}
+	return controllers
+}
+
+// AllWebhooks returns all webhooks across all providers,
+// prepended with the CAPI core webhook.
+func (c *TestConfig) AllWebhooks() []WebhookDef {
+	webhooks := []WebhookDef{
+		{DisplayName: "CAPI", Namespace: c.CAPINamespace, ServiceName: CAPIWebhookService, Port: CAPIWebhookPort},
+	}
+	for _, p := range c.InfraProviders {
+		webhooks = append(webhooks, p.Webhooks...)
+	}
+	return webhooks
+}
+
+// AllNamespaces returns deduplicated namespaces across CAPI core and all providers.
+func (c *TestConfig) AllNamespaces() []string {
+	seen := map[string]bool{c.CAPINamespace: true}
+	namespaces := []string{c.CAPINamespace}
+	for _, p := range c.InfraProviders {
+		for _, ctrl := range p.Controllers {
+			if !seen[ctrl.Namespace] {
+				seen[ctrl.Namespace] = true
+				namespaces = append(namespaces, ctrl.Namespace)
+			}
+		}
+	}
+	return namespaces
+}
+
+// DeploymentChartArgs returns all chart arguments for deploy-charts.sh,
+// starting with CAPI core and appending each provider's charts.
+func (c *TestConfig) DeploymentChartArgs() []string {
+	args := []string{CAPIDeploymentChartName}
+	for _, p := range c.InfraProviders {
+		args = append(args, p.DeploymentCharts...)
+	}
+	return args
 }
