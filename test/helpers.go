@@ -991,6 +991,32 @@ func EnsureAzureCredentialsSet(t *testing.T) error {
 	return nil
 }
 
+// EnsureAWSCredentialsSet checks that required AWS credential environment variables are set.
+// Unlike Azure, AWS CLI does not support auto-extraction of credentials from the CLI session,
+// so this function only validates that the required env vars are present.
+func EnsureAWSCredentialsSet(t *testing.T) error {
+	t.Helper()
+
+	var missing []string
+	for _, envVar := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"} {
+		if os.Getenv(envVar) == "" {
+			missing = append(missing, envVar)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("required AWS credential environment variables not set: %v\n\n"+
+			"Please set the following before running tests:\n"+
+			"  export AWS_ACCESS_KEY_ID=<your-access-key-id>\n"+
+			"  export AWS_SECRET_ACCESS_KEY=<your-secret-access-key>\n"+
+			"  export AWS_REGION=<your-aws-region>",
+			missing)
+	}
+
+	t.Log("AWS credentials are set")
+	return nil
+}
+
 // PatchASOCredentialsSecret patches the aso-controller-settings secret with Azure credentials.
 // The cluster-api-installer helm chart creates this secret with empty values, so we need to
 // patch it with actual credentials after deployment.
@@ -2808,76 +2834,79 @@ func ValidateAllConfigurations(t *testing.T, config *TestConfig) []ConfigValidat
 		results = append(results, result)
 	}
 
-	// Validate domain prefix length
-	domainPrefix := GetDomainPrefix(config.CAPZUser, config.Environment)
-	result := ConfigValidationResult{
-		Variable:   "Domain Prefix (CAPZ_USER-DEPLOYMENT_ENV)",
-		Value:      domainPrefix,
-		IsCritical: true,
-	}
-	if err := ValidateDomainPrefix(config.CAPZUser, config.Environment); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
+	// Validate Azure-specific naming constraints (only when ARO provider is active)
+	if config.HasProvider("aro") {
+		// Validate domain prefix length
+		domainPrefix := GetDomainPrefix(config.CAPZUser, config.Environment)
+		result := ConfigValidationResult{
+			Variable:   "Domain Prefix (CAPZ_USER-DEPLOYMENT_ENV)",
+			Value:      domainPrefix,
+			IsCritical: true,
+		}
+		if err := ValidateDomainPrefix(config.CAPZUser, config.Environment); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 
-	// Validate ExternalAuth ID length
-	externalAuthID := GetExternalAuthID(config.ClusterNamePrefix)
-	result = ConfigValidationResult{
-		Variable:   "ExternalAuth ID (CS_CLUSTER_NAME-ea)",
-		Value:      externalAuthID,
-		IsCritical: true,
-	}
-	if err := ValidateExternalAuthID(config.ClusterNamePrefix); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
+		// Validate ExternalAuth ID length
+		externalAuthID := GetExternalAuthID(config.ClusterNamePrefix)
+		result = ConfigValidationResult{
+			Variable:   "ExternalAuth ID (CS_CLUSTER_NAME-ea)",
+			Value:      externalAuthID,
+			IsCritical: true,
+		}
+		if err := ValidateExternalAuthID(config.ClusterNamePrefix); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 
-	// Validate Azure region
-	result = ConfigValidationResult{
-		Variable:   "REGION",
-		Value:      config.Region,
-		IsCritical: true,
+		// Validate Azure region
+		result = ConfigValidationResult{
+			Variable:   "REGION",
+			Value:      config.Region,
+			IsCritical: true,
+		}
+		if err := ValidateAzureRegion(t, config.Region); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 	}
-	if err := ValidateAzureRegion(t, config.Region); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
 
 	// Validate timeout values
-	result = ConfigValidationResult{
+	timeoutResult := ConfigValidationResult{
 		Variable:   "DEPLOYMENT_TIMEOUT",
 		Value:      config.DeploymentTimeout.String(),
 		IsCritical: false, // Not critical, deployment will just timeout
 	}
 	if err := ValidateDeploymentTimeout(config.DeploymentTimeout); err != nil {
-		result.IsValid = false
-		result.Error = err
+		timeoutResult.IsValid = false
+		timeoutResult.Error = err
 	} else {
-		result.IsValid = true
+		timeoutResult.IsValid = true
 	}
-	results = append(results, result)
+	results = append(results, timeoutResult)
 
-	result = ConfigValidationResult{
+	asoResult := ConfigValidationResult{
 		Variable:   "ASO_CONTROLLER_TIMEOUT",
 		Value:      config.ASOControllerTimeout.String(),
 		IsCritical: false,
 	}
 	if err := ValidateASOControllerTimeout(config.ASOControllerTimeout); err != nil {
-		result.IsValid = false
-		result.Error = err
+		asoResult.IsValid = false
+		asoResult.Error = err
 	} else {
-		result.IsValid = true
+		asoResult.IsValid = true
 	}
-	results = append(results, result)
+	results = append(results, asoResult)
 
 	return results
 }
