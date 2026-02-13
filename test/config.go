@@ -30,7 +30,7 @@ const (
 	// DefaultCAPZUser is the default user identifier for CAPZ resources.
 	// Used in ClusterNamePrefix (for resource group naming) and User field.
 	// Extracted to a constant to ensure consistency across all usages.
-	DefaultCAPZUser = "rcapd"
+	DefaultCAPZUser = "rcapa"
 
 	// DefaultDeploymentEnv is the default deployment environment identifier.
 	// Used in ClusterNamePrefix and Environment field.
@@ -40,6 +40,10 @@ const (
 	MCEComponentCAPI = "cluster-api"
 	// Deprecated: Use config.InfraProviders[i].MCEComponentName instead.
 	MCEComponentCAPZ = "cluster-api-provider-azure-preview"
+
+	// DefaultHelmInstallTimeout is the default timeout for Helm install operations
+	// (e.g., cert-manager installation during Kind cluster setup).
+	DefaultHelmInstallTimeout = 10 * time.Minute
 
 	// DefaultControllerTimeout is the default timeout for waiting for a controller to become ready.
 	DefaultControllerTimeout = 10 * time.Minute
@@ -90,12 +94,14 @@ type CredentialSecretDef struct {
 // InfraProvider defines an infrastructure provider's configuration.
 // Each provider has controllers, webhooks, and optionally a credential secret.
 type InfraProvider struct {
-	Name             string               // provider identifier (e.g., "azure")
+	Name             string               // provider identifier (e.g., "aro", "rosa")
 	Controllers      []ControllerDef      // controllers to validate
 	Webhooks         []WebhookDef         // webhooks to validate
 	CredentialSecret *CredentialSecretDef // nil if no credential secret needed
 	DeploymentCharts []string             // chart args for deploy-charts.sh
 	MCEComponentName string               // MCE component name for this provider
+	RequiredTools    []string             // CLI tools required for this provider (e.g., "az" for ARO, "aws" for ROSA)
+	RequiredScripts  []string             // repo-relative scripts this provider needs (validated in Phase 2)
 }
 
 // NewAzureProvider returns the InfraProvider configuration for Azure (CAPZ/ASO).
@@ -103,7 +109,7 @@ type InfraProvider struct {
 // (e.g., "capz-system" for Kind mode, "multicluster-engine" for MCE mode).
 func NewAzureProvider(namespace string) InfraProvider {
 	return InfraProvider{
-		Name: "azure",
+		Name: "aro",
 		Controllers: []ControllerDef{
 			{
 				DisplayName:    "CAPZ",
@@ -138,6 +144,38 @@ func NewAzureProvider(namespace string) InfraProvider {
 		},
 		DeploymentCharts: []string{"cluster-api-provider-azure"},
 		MCEComponentName: "cluster-api-provider-azure-preview",
+		RequiredTools:    []string{"az"},
+		RequiredScripts:  []string{"scripts/deploy-charts.sh", "doc/aro-hcp-scripts/aro-hcp-gen.sh"},
+	}
+}
+
+// NewAWSProvider returns the InfraProvider configuration for AWS (CAPA).
+// The namespace parameter is the resolved namespace for the CAPA controller
+// (e.g., "capa-system" for Kind mode, "multicluster-engine" for MCE mode).
+func NewAWSProvider(namespace string) InfraProvider {
+	return InfraProvider{
+		Name: "rosa",
+		Controllers: []ControllerDef{
+			{
+				DisplayName:    "CAPA",
+				Namespace:      namespace,
+				DeploymentName: "capa-controller-manager",
+				PodSelector:    "cluster.x-k8s.io/provider=infrastructure-aws",
+			},
+		},
+		Webhooks: []WebhookDef{
+			{DisplayName: "CAPA", Namespace: namespace, ServiceName: "capa-webhook-service", Port: 443},
+		},
+		CredentialSecret: &CredentialSecretDef{
+			Name:            "capa-manager-bootstrap-credentials",
+			Namespace:       namespace,
+			RequiredFields:  []string{"credentials"},
+			RequiredEnvVars: []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"},
+		},
+		DeploymentCharts: []string{"cluster-api-provider-aws"},
+		MCEComponentName: "cluster-api-provider-aws",
+		RequiredTools:    []string{"aws"},
+		RequiredScripts:  []string{"scripts/deploy-charts.sh", "scripts/rosa-hcp/gen.sh"},
 	}
 }
 
@@ -253,12 +291,15 @@ type TestConfig struct {
 	// Timeouts
 	DeploymentTimeout    time.Duration
 	ASOControllerTimeout time.Duration
+	HelmInstallTimeout   time.Duration
 
 	// Infrastructure providers
+	// InfraProviderName is the selected infrastructure provider ("aro" or "rosa").
+	// Set via INFRA_PROVIDER env var. Default: "aro".
+	InfraProviderName string
 	// InfraProviders holds the list of infrastructure provider configurations.
 	// Each provider defines its controllers, webhooks, and credential secrets.
-	// Currently initialized with Azure (CAPZ/ASO). Additional providers (CAPA, CAPM3, etc.)
-	// can be added via environment configuration or factory functions.
+	// Initialized based on INFRA_PROVIDER env var: "aro" (CAPZ/ASO) or "rosa" (CAPA).
 	InfraProviders []InfraProvider
 
 	// MCE (MultiClusterEngine) configuration
@@ -280,21 +321,37 @@ func NewTestConfig() *TestConfig {
 		_ = os.Setenv("USE_K8S", "true") // #nosec G104 - os.Setenv with fixed key/value cannot fail in practice
 	}
 
-	// Resolve namespaces before creating providers (providers need the resolved namespace)
-	capzNamespace := getControllerNamespace("CAPZ_NAMESPACE", "capz-system")
+	// Determine infrastructure provider
+	infraProviderName := GetEnvOrDefault("INFRA_PROVIDER", "aro")
 
-	// Build Azure provider with ASO controller timeout
-	azureProvider := NewAzureProvider(capzNamespace)
-	asoTimeout := parseASOControllerTimeout()
-	for i := range azureProvider.Controllers {
-		if azureProvider.Controllers[i].DisplayName == "ASO" {
-			azureProvider.Controllers[i].Timeout = asoTimeout
+	// Resolve provider-specific namespace and build provider config
+	var providerNamespace string
+	var infraProviders []InfraProvider
+	var asoTimeout time.Duration
+	var defaultGenScriptPath string
+
+	switch infraProviderName {
+	case "rosa":
+		providerNamespace = getControllerNamespace("CAPA_NAMESPACE", "capa-system")
+		infraProviders = []InfraProvider{NewAWSProvider(providerNamespace)}
+		defaultGenScriptPath = "./scripts/rosa-hcp/gen.sh"
+	default: // "aro"
+		infraProviderName = "aro" // normalize unknown values
+		providerNamespace = getControllerNamespace("CAPZ_NAMESPACE", "capz-system")
+		azureProvider := NewAzureProvider(providerNamespace)
+		asoTimeout = parseASOControllerTimeout()
+		for i := range azureProvider.Controllers {
+			if azureProvider.Controllers[i].DisplayName == "ASO" {
+				azureProvider.Controllers[i].Timeout = asoTimeout
+			}
 		}
+		infraProviders = []InfraProvider{azureProvider}
+		defaultGenScriptPath = "./doc/aro-hcp-scripts/aro-hcp-gen.sh"
 	}
 
 	return &TestConfig{
 		// Repository defaults
-		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/marek-verber/cluster-api-installer"),
+		RepoURL:    GetEnvOrDefault("ARO_REPO_URL", "https://github.com/marek-veber/cluster-api-installer"),
 		RepoBranch: GetEnvOrDefault("ARO_REPO_BRANCH", "capi-tests"),
 		RepoDir:    getDefaultRepoDir(),
 
@@ -309,7 +366,7 @@ func NewTestConfig() *TestConfig {
 		CAPZUser:                 GetEnvOrDefault("CAPZ_USER", DefaultCAPZUser),
 		WorkloadClusterNamespace: getWorkloadClusterNamespace(),
 		CAPINamespace:            getControllerNamespace("CAPI_NAMESPACE", "capi-system"),
-		CAPZNamespace:            capzNamespace,
+		CAPZNamespace:            providerNamespace,
 
 		// External cluster
 		UseKubeconfig: useKubeconfig,
@@ -320,14 +377,16 @@ func NewTestConfig() *TestConfig {
 		// Paths
 		ClusterctlBinPath: GetEnvOrDefault("CLUSTERCTL_BIN", "./bin/clusterctl"),
 		ScriptsPath:       GetEnvOrDefault("SCRIPTS_PATH", "./scripts"),
-		GenScriptPath:     GetEnvOrDefault("GEN_SCRIPT_PATH", "./doc/aro-hcp-scripts/aro-hcp-gen.sh"),
+		GenScriptPath:     GetEnvOrDefault("GEN_SCRIPT_PATH", defaultGenScriptPath),
 
 		// Timeouts
 		DeploymentTimeout:    parseDeploymentTimeout(),
 		ASOControllerTimeout: asoTimeout,
+		HelmInstallTimeout:   parseHelmInstallTimeout(),
 
 		// Infrastructure providers
-		InfraProviders: []InfraProvider{azureProvider},
+		InfraProviderName: infraProviderName,
+		InfraProviders:    infraProviders,
 
 		// MCE configuration
 		MCEAutoEnable:        parseMCEAutoEnable(useKubeconfig),
@@ -382,6 +441,23 @@ func parseASOControllerTimeout() time.Duration {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: invalid ASO_CONTROLLER_TIMEOUT '%s', using default %v\n", timeoutStr, DefaultASOControllerTimeout)
 		return DefaultASOControllerTimeout
+	}
+	return timeout
+}
+
+// parseHelmInstallTimeout parses the HELM_INSTALL_TIMEOUT environment variable.
+// Returns the parsed duration or defaults to DefaultHelmInstallTimeout.
+// This timeout is passed to deploy scripts for Helm install operations (e.g., cert-manager).
+func parseHelmInstallTimeout() time.Duration {
+	timeoutStr := os.Getenv("HELM_INSTALL_TIMEOUT")
+	if timeoutStr == "" {
+		return DefaultHelmInstallTimeout
+	}
+
+	timeout, err := time.ParseDuration(timeoutStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: invalid HELM_INSTALL_TIMEOUT '%s', using default %v\n", timeoutStr, DefaultHelmInstallTimeout)
+		return DefaultHelmInstallTimeout
 	}
 	return timeout
 }
@@ -553,4 +629,45 @@ func (c *TestConfig) DeploymentChartArgs() []string {
 		args = append(args, p.DeploymentCharts...)
 	}
 	return args
+}
+
+// HasProvider returns true if the named infrastructure provider is in the active provider list.
+// Use this to guard provider-specific test logic (e.g., config.HasProvider("aro")).
+func (c *TestConfig) HasProvider(name string) bool {
+	for _, p := range c.InfraProviders {
+		if p.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// AllRequiredTools returns deduplicated CLI tools required across all providers.
+func (c *TestConfig) AllRequiredTools() []string {
+	seen := map[string]bool{}
+	var tools []string
+	for _, p := range c.InfraProviders {
+		for _, tool := range p.RequiredTools {
+			if !seen[tool] {
+				seen[tool] = true
+				tools = append(tools, tool)
+			}
+		}
+	}
+	return tools
+}
+
+// AllRequiredScripts returns deduplicated repo-relative scripts required across all providers.
+func (c *TestConfig) AllRequiredScripts() []string {
+	seen := map[string]bool{}
+	var scripts []string
+	for _, p := range c.InfraProviders {
+		for _, script := range p.RequiredScripts {
+			if !seen[script] {
+				seen[script] = true
+				scripts = append(scripts, script)
+			}
+		}
+	}
+	return scripts
 }

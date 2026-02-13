@@ -377,17 +377,6 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 	if !clusterExists {
 		PrintToTTY("Kind cluster '%s' not found - will deploy new cluster\n", config.ManagementClusterName)
 
-		// Ensure Azure credentials are available for the deployment script
-		// The script needs AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID to configure ASO
-		PrintToTTY("\n=== Ensuring Azure credentials are available ===\n")
-		if err := EnsureAzureCredentialsSet(t); err != nil {
-			PrintToTTY("❌ Failed to ensure Azure credentials: %v\n", err)
-			PrintToTTY("Please ensure you are logged into Azure CLI: az login\n\n")
-			t.Fatalf("Azure credentials required for deployment: %v", err)
-			return
-		}
-		PrintToTTY("✅ Azure credentials available\n")
-
 		// Deploy Kind cluster and CAPI/CAPZ/ASO controllers using deploy-charts.sh
 		// DO_INIT_KIND=true creates the Kind cluster and installs cert-manager
 		// DO_DEPLOY=true deploys the specified charts
@@ -410,6 +399,8 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 		SetEnvVar(t, "KIND_CLUSTER_NAME", config.ManagementClusterName)
 		SetEnvVar(t, "DO_INIT_KIND", "true")
 		SetEnvVar(t, "DO_DEPLOY", "true")
+		// Format Go duration as a Helm-compatible duration string (e.g., "10m0s")
+		SetEnvVar(t, "HELM_INSTALL_TIMEOUT", config.HelmInstallTimeout.String())
 
 		// Change to repository directory for script execution
 		originalDir, err := os.Getwd()
@@ -435,10 +426,12 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 		if err != nil {
 			PrintToTTY("\n❌ Failed to deploy controllers: %v\n", err)
 
-			// Check for known Azure errors and provide remediation guidance
-			if azureErr := DetectAzureError(output); azureErr != nil {
-				PrintToTTY("%s", FormatAzureError(azureErr))
-				t.Logf("Azure error detected: %s", azureErr.ErrorType)
+			// Check for known provider errors
+			if config.HasProvider("aro") {
+				if azureErr := DetectAzureError(output); azureErr != nil {
+					PrintToTTY("%s", FormatAzureError(azureErr))
+					t.Logf("Azure error detected: %s", azureErr.ErrorType)
+				}
 			}
 
 			t.Errorf("Failed to deploy controllers: %v\nOutput: %s", err, output)
@@ -449,17 +442,38 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 		PrintToTTY("\n✅ Kind cluster deployment script completed successfully\n\n")
 		t.Log("Kind cluster deployment script completed successfully")
 
-		// Patch the ASO credentials secret with actual Azure credentials
-		// The helm chart creates the secret with empty values, so we need to populate it
-		// TODO: Generalize credential patching per provider (currently Azure-specific)
-		PrintToTTY("=== Patching ASO credentials secret ===\n")
-		context := config.GetKubeContext()
-		if err := PatchASOCredentialsSecret(t, context); err != nil {
-			PrintToTTY("❌ Failed to patch ASO credentials: %v\n", err)
-			t.Errorf("Failed to patch ASO credentials secret: %v", err)
-			return
+		// Ensure cloud credentials are available before patching secrets
+		if config.HasProvider("aro") {
+			PrintToTTY("=== Ensuring Azure credentials are available ===\n")
+			if err := EnsureAzureCredentialsSet(t); err != nil {
+				PrintToTTY("❌ Failed to ensure Azure credentials: %v\n", err)
+				PrintToTTY("Please ensure you are logged into Azure CLI: az login\n\n")
+				t.Fatalf("Azure credentials required for secret patching: %v", err)
+				return
+			}
+			PrintToTTY("✅ Azure credentials available\n\n")
 		}
-		PrintToTTY("✅ ASO credentials secret patched successfully\n\n")
+		if config.HasProvider("rosa") {
+			PrintToTTY("=== Ensuring AWS credentials are available ===\n")
+			if err := EnsureAWSCredentialsSet(t); err != nil {
+				PrintToTTY("❌ Failed to ensure AWS credentials: %v\n", err)
+				t.Fatalf("AWS credentials required for secret patching: %v", err)
+				return
+			}
+			PrintToTTY("✅ AWS credentials available\n\n")
+		}
+
+		// Patch provider-specific credentials after deployment
+		if config.HasProvider("aro") {
+			PrintToTTY("=== Patching ASO credentials secret ===\n")
+			context := config.GetKubeContext()
+			if err := PatchASOCredentialsSecret(t, context); err != nil {
+				PrintToTTY("❌ Failed to patch ASO credentials: %v\n", err)
+				t.Errorf("Failed to patch ASO credentials secret: %v", err)
+				return
+			}
+			PrintToTTY("✅ ASO credentials secret patched successfully\n\n")
+		}
 	} else {
 		PrintToTTY("✅ Kind cluster '%s' already exists\n\n", config.ManagementClusterName)
 		t.Logf("Kind cluster '%s' already exists", config.ManagementClusterName)
