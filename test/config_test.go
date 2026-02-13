@@ -458,8 +458,8 @@ func TestNewAzureProvider_RequiredScripts(t *testing.T) {
 	if p.RequiredScripts[0] != "scripts/deploy-charts.sh" {
 		t.Errorf("Expected first script 'scripts/deploy-charts.sh', got %q", p.RequiredScripts[0])
 	}
-	if p.RequiredScripts[1] != "doc/aro-hcp-scripts/aro-hcp-gen.sh" {
-		t.Errorf("Expected second script 'doc/aro-hcp-scripts/aro-hcp-gen.sh', got %q", p.RequiredScripts[1])
+	if p.RequiredScripts[1] != "scripts/aro-hcp/gen.sh" {
+		t.Errorf("Expected second script 'scripts/aro-hcp/gen.sh', got %q", p.RequiredScripts[1])
 	}
 }
 

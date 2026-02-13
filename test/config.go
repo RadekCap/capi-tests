@@ -145,7 +145,7 @@ func NewAzureProvider(namespace string) InfraProvider {
 		DeploymentCharts: []string{"cluster-api-provider-azure"},
 		MCEComponentName: "cluster-api-provider-azure-preview",
 		RequiredTools:    []string{"az"},
-		RequiredScripts:  []string{"scripts/deploy-charts.sh", "doc/aro-hcp-scripts/aro-hcp-gen.sh"},
+		RequiredScripts:  []string{"scripts/deploy-charts.sh", "scripts/aro-hcp/gen.sh"},
 	}
 }
 
@@ -346,7 +346,7 @@ func NewTestConfig() *TestConfig {
 			}
 		}
 		infraProviders = []InfraProvider{azureProvider}
-		defaultGenScriptPath = "./doc/aro-hcp-scripts/aro-hcp-gen.sh"
+		defaultGenScriptPath = "./scripts/aro-hcp/gen.sh"
 	}
 
 	return &TestConfig{
