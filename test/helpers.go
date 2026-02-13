@@ -1017,6 +1017,69 @@ func EnsureAWSCredentialsSet(t *testing.T) error {
 	return nil
 }
 
+// ResolveDockerConfigPath returns the path to the Docker config file following Docker's
+// standard convention:
+//  1. $DOCKER_CONFIG/config.json (if DOCKER_CONFIG is set)
+//  2. $HOME/.docker/config.json (default)
+//
+// Returns the path and true if the file exists, or empty string and false otherwise.
+func ResolveDockerConfigPath() (string, bool) {
+	if dockerConfig := os.Getenv("DOCKER_CONFIG"); dockerConfig != "" {
+		path := filepath.Join(dockerConfig, "config.json")
+		if FileExists(path) {
+			return path, true
+		}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+
+	path := filepath.Join(homeDir, ".docker", "config.json")
+	if FileExists(path) {
+		return path, true
+	}
+
+	return "", false
+}
+
+// GenerateKindConfig creates a Kind cluster configuration file at the expected path
+// for setup-kind-cluster.sh. The config mounts the Docker config into the Kind node
+// to enable pulling from private registries (e.g., quay.io/acm-d/).
+//
+// If no Docker config file is found, skips generation and logs a warning.
+// Returns the path to the generated file (empty if skipped) and any error.
+func GenerateKindConfig(t *testing.T, repoDir, clusterName string) (string, error) {
+	t.Helper()
+
+	dockerConfigPath, found := ResolveDockerConfigPath()
+	if !found {
+		t.Log("Warning: no Docker config found ($DOCKER_CONFIG/config.json or ~/.docker/config.json)")
+		t.Log("Kind nodes will not have registry credentials - private image pulls may fail")
+		return "", nil
+	}
+
+	kindConfigPath := filepath.Join(repoDir, "scripts", fmt.Sprintf("kind-config-%s.yaml", clusterName))
+
+	content := fmt.Sprintf(`kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: %s
+    containerPath: /var/lib/kubelet/config.json
+`, dockerConfigPath)
+
+	// #nosec G306 - kind config is non-sensitive (contains path reference, not credentials)
+	if err := os.WriteFile(kindConfigPath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write kind config %s: %w", kindConfigPath, err)
+	}
+
+	t.Logf("Generated kind config: %s (using Docker config: %s)", kindConfigPath, dockerConfigPath)
+	return kindConfigPath, nil
+}
+
 // PatchASOCredentialsSecret patches the aso-controller-settings secret with Azure credentials.
 // The cluster-api-installer helm chart creates this secret with empty values, so we need to
 // patch it with actual credentials after deployment.

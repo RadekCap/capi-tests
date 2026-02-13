@@ -387,6 +387,21 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 			return
 		}
 
+		// Generate Kind config file for private registry access
+		PrintToTTY("\n=== Generating Kind cluster configuration ===\n")
+		kindConfigPath, err := GenerateKindConfig(t, config.RepoDir, config.ManagementClusterName)
+		if err != nil {
+			PrintToTTY("❌ Failed to generate Kind config: %v\n", err)
+			t.Fatalf("Failed to generate Kind config: %v", err)
+			return
+		}
+		if kindConfigPath != "" {
+			PrintToTTY("✅ Kind config generated: %s\n", kindConfigPath)
+		} else {
+			PrintToTTY("⚠️  No Docker config found - Kind nodes will not have registry credentials\n")
+			PrintToTTY("   Private image pulls (e.g., quay.io/acm-d/) may fail with ErrImagePull\n")
+		}
+
 		PrintToTTY("\n=== Deploying Kind cluster '%s' with CAPI/CAPZ/ASO controllers ===\n", config.ManagementClusterName)
 		PrintToTTY("This will: create Kind cluster, install cert-manager, deploy controllers\n")
 		PrintToTTY("Expected duration: 5-10 minutes\n")
