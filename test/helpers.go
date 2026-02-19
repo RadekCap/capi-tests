@@ -1064,6 +1064,11 @@ func GenerateKindConfig(t *testing.T, repoDir, clusterName string) (string, erro
 
 	content := fmt.Sprintf(`kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+      SystemdCgroup = true
 nodes:
 - role: control-plane
   extraMounts:

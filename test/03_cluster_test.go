@@ -414,8 +414,18 @@ func TestKindCluster_KindClusterReady(t *testing.T) {
 		SetEnvVar(t, "KIND_CLUSTER_NAME", config.ManagementClusterName)
 		SetEnvVar(t, "DO_INIT_KIND", "true")
 		SetEnvVar(t, "DO_DEPLOY", "true")
+		// Disable the script's built-in deployment check — it assumes all providers
+		// share a namespace (capi-system), but charts may deploy to provider-specific
+		// namespaces (e.g., capz-system). Our own tests validate controller readiness
+		// with the correct namespace from InfraProvider config.
+		SetEnvVar(t, "DO_CHECK", "false")
 		// Format Go duration as a Helm-compatible duration string (e.g., "10m0s")
 		SetEnvVar(t, "HELM_INSTALL_TIMEOUT", config.HelmInstallTimeout.String())
+		// Pass generated Kind config to setup-kind-cluster.sh so it uses our
+		// config with Docker credentials mounted for private registry access
+		if kindConfigPath != "" {
+			SetEnvVar(t, "KIND_CFG_NAME", kindConfigPath)
+		}
 
 		// Change to repository directory for script execution
 		originalDir, err := os.Getwd()
