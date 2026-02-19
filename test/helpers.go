@@ -93,7 +93,7 @@ func RunCommand(t *testing.T, name string, args ...string) (string, error) {
 	t.Logf("Executing command: %s", cmdStr)
 	logCommandToFile(t.Name(), cmdStr)
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(name, args...) // #nosec G204 G702 -- test helper designed to execute arbitrary commands for test orchestration
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
 }
@@ -114,7 +114,7 @@ func RunCommandQuiet(t *testing.T, name string, args ...string) (string, error) 
 	t.Logf("Executing command (quiet): %s", cmdStr)
 	logCommandToFile(t.Name(), cmdStr)
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(name, args...) // #nosec G204 G702 -- test helper designed to execute arbitrary commands for test orchestration
 	output, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(output)), err
 }
@@ -160,7 +160,7 @@ func RunCommandWithStreaming(t *testing.T, name string, args ...string) (string,
 	t.Logf("Executing command (streaming): %s", cmdStr)
 	logCommandToFile(t.Name(), cmdStr)
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.Command(name, args...) // #nosec G204 G702 -- test helper designed to execute arbitrary commands for test orchestration
 
 	// Create pipes for stdout and stderr
 	stdout, err := cmd.StdoutPipe()
@@ -262,7 +262,7 @@ var (
 // resolveCommandLogDir returns the results directory path for command logging.
 func resolveCommandLogDir() string {
 	if dir := os.Getenv("TEST_RESULTS_DIR"); dir != "" {
-		return dir
+		return filepath.Clean(dir)
 	}
 	return GetResultsDir()
 }
@@ -324,7 +324,7 @@ func SetEnvVar(t *testing.T, key, value string) {
 
 // FileExists checks if a file exists at the given path
 func FileExists(path string) bool {
-	_, err := os.Stat(path)
+	_, err := os.Stat(path) // #nosec G703 -- test helper only checks existence, no file content read
 	return err == nil
 }
 
@@ -348,7 +348,7 @@ func GetEnvOrDefault(key, defaultValue string) string {
 // ExtractCurrentContext reads the current-context from a kubeconfig file.
 // Returns the context name or empty string if extraction fails.
 func ExtractCurrentContext(kubeconfigPath string) string {
-	output, err := exec.Command("kubectl", "config", "current-context",
+	output, err := exec.Command("kubectl", "config", "current-context", // #nosec G204 -- kubeconfigPath is from trusted test configuration
 		"--kubeconfig", kubeconfigPath).Output()
 	if err != nil {
 		return ""
@@ -746,16 +746,16 @@ func FormatAROControlPlaneConditions(jsonData string) string {
 		}
 
 		// Format the condition line
-		result.WriteString(fmt.Sprintf("  %s %s: %s", icon, cond.Type, cond.Status))
+		fmt.Fprintf(&result, "  %s %s: %s", icon, cond.Type, cond.Status)
 
 		// Add context based on whether it's a waiting condition or regular status
 		if cond.Status != "True" {
 			if isWaiting {
 				// Show user-friendly waiting description instead of misleading "ReconciliationFailed"
-				result.WriteString(fmt.Sprintf(" (%s)", waitingDesc))
+				fmt.Fprintf(&result, " (%s)", waitingDesc)
 			} else if cond.Reason != "" {
 				// Show the original reason for non-waiting conditions
-				result.WriteString(fmt.Sprintf(" (%s)", cond.Reason))
+				fmt.Fprintf(&result, " (%s)", cond.Reason)
 			}
 		}
 
@@ -989,6 +989,100 @@ func EnsureAzureCredentialsSet(t *testing.T) error {
 	}
 
 	return nil
+}
+
+// EnsureAWSCredentialsSet checks that required AWS credential environment variables are set.
+// Unlike Azure, AWS CLI does not support auto-extraction of credentials from the CLI session,
+// so this function only validates that the required env vars are present.
+func EnsureAWSCredentialsSet(t *testing.T) error {
+	t.Helper()
+
+	var missing []string
+	for _, envVar := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"} {
+		if os.Getenv(envVar) == "" {
+			missing = append(missing, envVar)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("required AWS credential environment variables not set: %v\n\n"+
+			"Please set the following before running tests:\n"+
+			"  export AWS_ACCESS_KEY_ID=<your-access-key-id>\n"+
+			"  export AWS_SECRET_ACCESS_KEY=<your-secret-access-key>\n"+
+			"  export AWS_REGION=<your-aws-region>",
+			missing)
+	}
+
+	t.Log("AWS credentials are set")
+	return nil
+}
+
+// ResolveDockerConfigPath returns the path to the Docker config file following Docker's
+// standard convention:
+//  1. $DOCKER_SECRETS/config.json (if DOCKER_SECRETS is set)
+//  2. $HOME/.docker/config.json (default)
+//
+// Returns the path and true if the file exists, or empty string and false otherwise.
+func ResolveDockerConfigPath() (string, bool) {
+	if dockerConfig := os.Getenv("DOCKER_SECRETS"); dockerConfig != "" {
+		path := filepath.Join(dockerConfig, "config.json")
+		if FileExists(path) {
+			return path, true
+		}
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+
+	path := filepath.Join(homeDir, ".docker", "config.json")
+	if FileExists(path) {
+		return path, true
+	}
+
+	return "", false
+}
+
+// GenerateKindConfig creates a Kind cluster configuration file at the expected path
+// for setup-kind-cluster.sh. The config mounts the Docker config into the Kind node
+// to enable pulling from private registries (e.g., quay.io/acm-d/).
+//
+// If no Docker config file is found, skips generation and logs a warning.
+// Returns the path to the generated file (empty if skipped) and any error.
+func GenerateKindConfig(t *testing.T, repoDir, clusterName string) (string, error) {
+	t.Helper()
+
+	dockerConfigPath, found := ResolveDockerConfigPath()
+	if !found {
+		t.Log("Warning: no Docker config found ($DOCKER_SECRETS/config.json or ~/.docker/config.json)")
+		t.Log("Kind nodes will not have registry credentials - private image pulls may fail")
+		return "", nil
+	}
+
+	kindConfigPath := filepath.Join(repoDir, "scripts", fmt.Sprintf("kind-config-%s.yaml", clusterName))
+
+	content := fmt.Sprintf(`kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+containerdConfigPatches:
+- |-
+  [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+      SystemdCgroup = true
+nodes:
+- role: control-plane
+  extraMounts:
+  - hostPath: "%s"
+    containerPath: /var/lib/kubelet/config.json
+`, dockerConfigPath)
+
+	// #nosec G306 - kind config is non-sensitive (contains path reference, not credentials)
+	if err := os.WriteFile(kindConfigPath, []byte(content), 0644); err != nil {
+		return "", fmt.Errorf("failed to write kind config %s: %w", kindConfigPath, err)
+	}
+
+	t.Logf("Generated kind config: %s (using Docker config: %s)", kindConfigPath, dockerConfigPath)
+	return kindConfigPath, nil
 }
 
 // PatchASOCredentialsSecret patches the aso-controller-settings secret with Azure credentials.
@@ -1543,10 +1637,10 @@ func FormatAzureError(info *AzureErrorInfo) string {
 	}
 
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("\n=== Azure Error Detected: %s ===\n", info.Message))
+	fmt.Fprintf(&result, "\n=== Azure Error Detected: %s ===\n", info.Message)
 	result.WriteString("\nRemediation steps:\n")
 	for _, step := range info.Remediation {
-		result.WriteString(fmt.Sprintf("  %s\n", step))
+		fmt.Fprintf(&result, "  %s\n", step)
 	}
 	result.WriteString("\n")
 
@@ -1736,23 +1830,13 @@ func GetComponentVersions(t *testing.T, kubeContext string) []ComponentVersion {
 	// Get namespace configuration
 	config := NewTestConfig()
 
-	components := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPZ (Cluster API Provider Azure)", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO (Azure Service Operator)", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-		{"CAPI (Cluster API)", config.CAPINamespace, "capi-controller-manager"},
-	}
-
 	var versions []ComponentVersion
 
-	for _, comp := range components {
-		image, err := GetDeploymentImage(t, kubeContext, comp.namespace, comp.deployment)
+	for _, ctrl := range config.AllControllers() {
+		image, err := GetDeploymentImage(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName)
 		if err != nil {
 			versions = append(versions, ComponentVersion{
-				Name:    comp.name,
+				Name:    ctrl.DisplayName,
 				Version: "not found",
 				Image:   "N/A",
 			})
@@ -1760,7 +1844,7 @@ func GetComponentVersions(t *testing.T, kubeContext string) []ComponentVersion {
 		}
 
 		versions = append(versions, ComponentVersion{
-			Name:    comp.name,
+			Name:    ctrl.DisplayName,
 			Version: extractVersionFromImage(image),
 			Image:   image,
 		})
@@ -1779,17 +1863,17 @@ func FormatComponentVersions(versions []ComponentVersion, config *TestConfig) st
 	if config != nil {
 		// Local Kind cluster (management cluster)
 		result.WriteString("\nLocal Kind Cluster:\n")
-		result.WriteString(fmt.Sprintf("  Management Cluster: %s\n", config.ManagementClusterName))
+		fmt.Fprintf(&result, "  Management Cluster: %s\n", config.ManagementClusterName)
 
 		// Azure ARO cluster (workload cluster)
 		result.WriteString("\nAzure ARO Cluster:\n")
-		result.WriteString(fmt.Sprintf("  Workload Cluster:   %s\n", config.WorkloadClusterName))
-		result.WriteString(fmt.Sprintf("  Region:             %s\n", config.Region))
+		fmt.Fprintf(&result, "  Workload Cluster:   %s\n", config.WorkloadClusterName)
+		fmt.Fprintf(&result, "  Region:             %s\n", config.Region)
 		if config.AzureSubscriptionName != "" {
-			result.WriteString(fmt.Sprintf("  Subscription:       %s\n", config.AzureSubscriptionName))
+			fmt.Fprintf(&result, "  Subscription:       %s\n", config.AzureSubscriptionName)
 		}
-		result.WriteString(fmt.Sprintf("  Resource Group:     %s-resgroup\n", config.ClusterNamePrefix))
-		result.WriteString(fmt.Sprintf("  OpenShift Version:  %s\n", config.OCPVersion))
+		fmt.Fprintf(&result, "  Resource Group:     %s-resgroup\n", config.ClusterNamePrefix)
+		fmt.Fprintf(&result, "  OpenShift Version:  %s\n", config.OCPVersion)
 	}
 
 	// Used repositories
@@ -1798,22 +1882,22 @@ func FormatComponentVersions(versions []ComponentVersion, config *TestConfig) st
 	if len(repos) > 0 {
 		result.WriteString("\n=== USED REPOSITORIES ===\n\n")
 		for _, repo := range repos {
-			result.WriteString(fmt.Sprintf("- %s\n", repo.URL))
-			result.WriteString(fmt.Sprintf("  Branch: %s\n", repo.Branch))
+			fmt.Fprintf(&result, "- %s\n", repo.URL)
+			fmt.Fprintf(&result, "  Branch: %s\n", repo.Branch)
 		}
 	} else if config != nil && config.RepoURL != "" {
 		// Fallback to config values (works across separate test processes)
 		result.WriteString("\n=== USED REPOSITORIES ===\n\n")
-		result.WriteString(fmt.Sprintf("- %s\n", config.RepoURL))
-		result.WriteString(fmt.Sprintf("  Branch: %s\n", config.RepoBranch))
+		fmt.Fprintf(&result, "- %s\n", config.RepoURL)
+		fmt.Fprintf(&result, "  Branch: %s\n", config.RepoBranch)
 	}
 
 	// Component versions
 	result.WriteString("\n=== COMPONENT VERSIONS ===\n\n")
 
 	for _, v := range versions {
-		result.WriteString(fmt.Sprintf("%s: %s\n", v.Name, v.Version))
-		result.WriteString(fmt.Sprintf("  Image: %s\n", v.Image))
+		fmt.Fprintf(&result, "%s: %s\n", v.Name, v.Version)
+		fmt.Fprintf(&result, "  Image: %s\n", v.Image)
 	}
 
 	return result.String()
@@ -2092,28 +2176,16 @@ func SaveControllerLogs(t *testing.T, kubeContext, namespace, deploymentName, co
 }
 
 // GetAllControllerLogSummaries retrieves log summaries for all key controllers.
-// Returns a slice of ControllerLogSummary for CAPI, CAPZ, and ASO controllers.
+// Returns a slice of ControllerLogSummary for CAPI and all infrastructure provider controllers.
 func GetAllControllerLogSummaries(t *testing.T, kubeContext string) []ControllerLogSummary {
 	t.Helper()
 
-	// Define controllers to check (same as in GetComponentVersions)
-	// Get namespace configuration
 	config := NewTestConfig()
-
-	controllers := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPI", config.CAPINamespace, "capi-controller-manager"},
-		{"CAPZ", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-	}
 
 	var summaries []ControllerLogSummary
 
-	for _, ctrl := range controllers {
-		summary := SummarizeControllerLogs(t, kubeContext, ctrl.namespace, ctrl.deployment, ctrl.name)
+	for _, ctrl := range config.AllControllers() {
+		summary := SummarizeControllerLogs(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName, ctrl.DisplayName)
 		summaries = append(summaries, summary)
 	}
 
@@ -2142,11 +2214,11 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 			icon = "⚠️"
 		}
 
-		result.WriteString(fmt.Sprintf("%s %s Controller:\n", icon, s.Name))
-		result.WriteString(fmt.Sprintf("   Errors: %d | Warnings: %d\n", s.ErrorCount, s.WarnCount))
+		fmt.Fprintf(&result, "%s %s Controller:\n", icon, s.Name)
+		fmt.Fprintf(&result, "   Errors: %d | Warnings: %d\n", s.ErrorCount, s.WarnCount)
 
 		if s.LogFile != "" {
-			result.WriteString(fmt.Sprintf("   Log file: %s\n", s.LogFile))
+			fmt.Fprintf(&result, "   Log file: %s\n", s.LogFile)
 		}
 
 		// Show sample error messages
@@ -2154,7 +2226,7 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 			result.WriteString("   Sample errors:\n")
 			for i, err := range s.Errors {
 				if i >= 3 { // Show only first 3 in summary
-					result.WriteString(fmt.Sprintf("   ... and %d more errors\n", len(s.Errors)-3))
+					fmt.Fprintf(&result, "   ... and %d more errors\n", len(s.Errors)-3)
 					break
 				}
 				// Truncate long lines
@@ -2162,7 +2234,7 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 				if len(errLine) > 200 {
 					errLine = errLine[:200] + "..."
 				}
-				result.WriteString(fmt.Sprintf("     - %s\n", errLine))
+				fmt.Fprintf(&result, "     - %s\n", errLine)
 			}
 		}
 
@@ -2171,7 +2243,7 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 
 	// Overall summary
 	result.WriteString("─────────────────────────────\n")
-	result.WriteString(fmt.Sprintf("Total: %d errors, %d warnings across all controllers\n", totalErrors, totalWarnings))
+	fmt.Fprintf(&result, "Total: %d errors, %d warnings across all controllers\n", totalErrors, totalWarnings)
 
 	if totalErrors > 0 {
 		result.WriteString("⚠️  Review controller logs for details on errors.\n")
@@ -2189,30 +2261,18 @@ func FormatControllerLogSummaries(summaries []ControllerLogSummary) string {
 func SaveAllControllerLogs(t *testing.T, kubeContext, outputDir string, summaries []ControllerLogSummary) []ControllerLogSummary {
 	t.Helper()
 
-	// Define controllers (same list as in GetAllControllerLogSummaries)
-	// Get namespace configuration
 	config := NewTestConfig()
 
-	controllers := []struct {
-		name       string
-		namespace  string
-		deployment string
-	}{
-		{"CAPI", config.CAPINamespace, "capi-controller-manager"},
-		{"CAPZ", config.CAPZNamespace, "capz-controller-manager"},
-		{"ASO", config.CAPZNamespace, "azureserviceoperator-controller-manager"},
-	}
-
-	// Create a map for quick lookup
-	controllerMap := make(map[string]struct{ namespace, deployment string })
-	for _, c := range controllers {
-		controllerMap[c.name] = struct{ namespace, deployment string }{c.namespace, c.deployment}
+	// Create a map for quick lookup from display name to controller definition
+	controllerMap := make(map[string]ControllerDef)
+	for _, ctrl := range config.AllControllers() {
+		controllerMap[ctrl.DisplayName] = ctrl
 	}
 
 	// Update summaries with log file paths
 	for i := range summaries {
 		if ctrl, ok := controllerMap[summaries[i].Name]; ok {
-			logFile, err := SaveControllerLogs(t, kubeContext, ctrl.namespace, ctrl.deployment, summaries[i].Name, outputDir)
+			logFile, err := SaveControllerLogs(t, kubeContext, ctrl.Namespace, ctrl.DeploymentName, summaries[i].Name, outputDir)
 			if err != nil {
 				t.Logf("Warning: Failed to save logs for %s: %v", summaries[i].Name, err)
 			} else {
@@ -2230,9 +2290,11 @@ func SaveAllControllerLogs(t *testing.T, kubeContext, outputDir string, summarie
 func GetResultsDir() string {
 	// Check for environment variable set by Makefile
 	if envDir := os.Getenv("TEST_RESULTS_DIR"); envDir != "" {
+		// Normalize path to resolve relative components like ".."
+		cleanDir := filepath.Clean(envDir)
 		// Ensure directory exists
-		if err := os.MkdirAll(envDir, 0750); err == nil {
-			return envDir
+		if err := os.MkdirAll(cleanDir, 0750); err == nil { // #nosec G703 -- path from trusted TEST_RESULTS_DIR env var set by Makefile
+			return cleanDir
 		}
 	}
 
@@ -2492,7 +2554,7 @@ func FormatDeletionProgress(status DeletionResourceStatus) string {
 			if len(f) > 53 {
 				f = f[:50] + "..."
 			}
-			sb.WriteString(fmt.Sprintf("│      - %-53s│\n", f))
+			fmt.Fprintf(&sb, "│      - %-53s│\n", f)
 		}
 	}
 
@@ -2621,7 +2683,7 @@ func ValidateAzureSubscriptionAccess(t *testing.T, subscriptionID string) error 
 func formatRemediationSteps(steps []string) string {
 	var result strings.Builder
 	for _, step := range steps {
-		result.WriteString(fmt.Sprintf("    %s\n", step))
+		fmt.Fprintf(&result, "    %s\n", step)
 	}
 	return result.String()
 }
@@ -2840,76 +2902,79 @@ func ValidateAllConfigurations(t *testing.T, config *TestConfig) []ConfigValidat
 		results = append(results, result)
 	}
 
-	// Validate domain prefix length
-	domainPrefix := GetDomainPrefix(config.CAPZUser, config.Environment)
-	result := ConfigValidationResult{
-		Variable:   "Domain Prefix (CAPZ_USER-DEPLOYMENT_ENV)",
-		Value:      domainPrefix,
-		IsCritical: true,
-	}
-	if err := ValidateDomainPrefix(config.CAPZUser, config.Environment); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
+	// Validate Azure-specific naming constraints (only when ARO provider is active)
+	if config.HasProvider("aro") {
+		// Validate domain prefix length
+		domainPrefix := GetDomainPrefix(config.CAPZUser, config.Environment)
+		result := ConfigValidationResult{
+			Variable:   "Domain Prefix (CAPZ_USER-DEPLOYMENT_ENV)",
+			Value:      domainPrefix,
+			IsCritical: true,
+		}
+		if err := ValidateDomainPrefix(config.CAPZUser, config.Environment); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 
-	// Validate ExternalAuth ID length
-	externalAuthID := GetExternalAuthID(config.ClusterNamePrefix)
-	result = ConfigValidationResult{
-		Variable:   "ExternalAuth ID (CS_CLUSTER_NAME-ea)",
-		Value:      externalAuthID,
-		IsCritical: true,
-	}
-	if err := ValidateExternalAuthID(config.ClusterNamePrefix); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
+		// Validate ExternalAuth ID length
+		externalAuthID := GetExternalAuthID(config.ClusterNamePrefix)
+		result = ConfigValidationResult{
+			Variable:   "ExternalAuth ID (CS_CLUSTER_NAME-ea)",
+			Value:      externalAuthID,
+			IsCritical: true,
+		}
+		if err := ValidateExternalAuthID(config.ClusterNamePrefix); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 
-	// Validate Azure region
-	result = ConfigValidationResult{
-		Variable:   "REGION",
-		Value:      config.Region,
-		IsCritical: true,
+		// Validate Azure region
+		result = ConfigValidationResult{
+			Variable:   "REGION",
+			Value:      config.Region,
+			IsCritical: true,
+		}
+		if err := ValidateAzureRegion(t, config.Region); err != nil {
+			result.IsValid = false
+			result.Error = err
+		} else {
+			result.IsValid = true
+		}
+		results = append(results, result)
 	}
-	if err := ValidateAzureRegion(t, config.Region); err != nil {
-		result.IsValid = false
-		result.Error = err
-	} else {
-		result.IsValid = true
-	}
-	results = append(results, result)
 
 	// Validate timeout values
-	result = ConfigValidationResult{
+	timeoutResult := ConfigValidationResult{
 		Variable:   "DEPLOYMENT_TIMEOUT",
 		Value:      config.DeploymentTimeout.String(),
 		IsCritical: false, // Not critical, deployment will just timeout
 	}
 	if err := ValidateDeploymentTimeout(config.DeploymentTimeout); err != nil {
-		result.IsValid = false
-		result.Error = err
+		timeoutResult.IsValid = false
+		timeoutResult.Error = err
 	} else {
-		result.IsValid = true
+		timeoutResult.IsValid = true
 	}
-	results = append(results, result)
+	results = append(results, timeoutResult)
 
-	result = ConfigValidationResult{
+	asoResult := ConfigValidationResult{
 		Variable:   "ASO_CONTROLLER_TIMEOUT",
 		Value:      config.ASOControllerTimeout.String(),
 		IsCritical: false,
 	}
 	if err := ValidateASOControllerTimeout(config.ASOControllerTimeout); err != nil {
-		result.IsValid = false
-		result.Error = err
+		asoResult.IsValid = false
+		asoResult.Error = err
 	} else {
-		result.IsValid = true
+		asoResult.IsValid = true
 	}
-	results = append(results, result)
+	results = append(results, asoResult)
 
 	return results
 }
@@ -2937,27 +3002,27 @@ func FormatValidationResults(results []ConfigValidationResult) string {
 			icon = "⏭️"
 		}
 
-		sb.WriteString(fmt.Sprintf("%s %s: %s\n", icon, r.Variable, r.Value))
+		fmt.Fprintf(&sb, "%s %s: %s\n", icon, r.Variable, r.Value)
 
 		if r.SkipReason != "" {
-			sb.WriteString(fmt.Sprintf("   Skipped: %s\n", r.SkipReason))
+			fmt.Fprintf(&sb, "   Skipped: %s\n", r.SkipReason)
 		}
 
 		if r.Error != nil {
 			// Indent error message
 			errLines := strings.Split(r.Error.Error(), "\n")
 			for _, line := range errLines {
-				sb.WriteString(fmt.Sprintf("   %s\n", line))
+				fmt.Fprintf(&sb, "   %s\n", line)
 			}
 		}
 	}
 
 	sb.WriteString("\n─────────────────────────────────────────\n")
 	if criticalErrors > 0 {
-		sb.WriteString(fmt.Sprintf("❌ %d critical error(s) found - deployment will fail!\n", criticalErrors))
+		fmt.Fprintf(&sb, "❌ %d critical error(s) found - deployment will fail!\n", criticalErrors)
 	}
 	if warnings > 0 {
-		sb.WriteString(fmt.Sprintf("⚠️  %d warning(s) found - review recommended\n", warnings))
+		fmt.Fprintf(&sb, "⚠️  %d warning(s) found - review recommended\n", warnings)
 	}
 	if criticalErrors == 0 && warnings == 0 {
 		sb.WriteString("✅ All configuration validations passed\n")
@@ -3033,10 +3098,10 @@ func FormatMismatchedClustersError(mismatched []string, expectedPrefix, namespac
 
 	sb.WriteString("Found existing Cluster CRs that don't match current configuration:\n\n")
 	for _, name := range mismatched {
-		sb.WriteString(fmt.Sprintf("  • %s\n", name))
+		fmt.Fprintf(&sb, "  • %s\n", name)
 	}
 
-	sb.WriteString(fmt.Sprintf("\nCurrent config expects cluster names starting with: %s\n\n", expectedPrefix))
+	fmt.Fprintf(&sb, "\nCurrent config expects cluster names starting with: %s\n\n", expectedPrefix)
 
 	sb.WriteString("This typically happens when CAPZ_USER was changed without cleaning up\n")
 	sb.WriteString("the previous cluster resources. Deploying new clusters alongside old ones\n")
@@ -3046,13 +3111,13 @@ func FormatMismatchedClustersError(mismatched []string, expectedPrefix, namespac
 
 	// Single cluster cleanup
 	if len(mismatched) == 1 {
-		sb.WriteString(fmt.Sprintf("  kubectl delete cluster %s -n %s\n\n", mismatched[0], namespace))
+		fmt.Fprintf(&sb, "  kubectl delete cluster %s -n %s\n\n", mismatched[0], namespace)
 	} else {
 		// Multiple clusters
 		sb.WriteString("  # Delete specific cluster:\n")
-		sb.WriteString(fmt.Sprintf("  kubectl delete cluster %s -n %s\n\n", mismatched[0], namespace))
+		fmt.Fprintf(&sb, "  kubectl delete cluster %s -n %s\n\n", mismatched[0], namespace)
 		sb.WriteString("  # Or delete all clusters in namespace:\n")
-		sb.WriteString(fmt.Sprintf("  kubectl delete cluster --all -n %s\n\n", namespace))
+		fmt.Fprintf(&sb, "  kubectl delete cluster --all -n %s\n\n", namespace)
 	}
 
 	sb.WriteString("  # Or use make clean for complete cleanup:\n")
