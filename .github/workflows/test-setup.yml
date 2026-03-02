@@ -1,4 +1,4 @@
-name: Repository Setup
+name: 02 Test Setup
 
 on:
   workflow_dispatch:

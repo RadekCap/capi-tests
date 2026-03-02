@@ -1,4 +1,4 @@
-name: Cluster Preparation
+name: 03 Cluster Preparation
 
 # Manual-only trigger. Requires Azure secrets configured in repository settings:
 #   AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET
