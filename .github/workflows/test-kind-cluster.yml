@@ -10,9 +10,6 @@ permissions:
   issues: write
 
 env:
-  ARO_REPO_URL: https://github.com/stolostron/cluster-api-installer.git
-  ARO_REPO_BRANCH: main
-  ARO_REPO_DIR: /tmp/cluster-api-installer-aro
   USE_KIND: "true"
   AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -74,15 +71,6 @@ jobs:
       with:
         # Helm 3.12+ required
         version: 'v3.16.0'
-
-    - name: Clone cluster-api-installer repository
-      run: |
-        if [ -d "$ARO_REPO_DIR" ]; then
-          echo "Repository already exists, skipping clone"
-        else
-          git clone -b "$ARO_REPO_BRANCH" "$ARO_REPO_URL" "$ARO_REPO_DIR"
-          echo "Repository cloned successfully"
-        fi
 
     - name: Run Kind cluster tests
       run: |
