@@ -24,6 +24,7 @@ jobs:
 
     steps:
     - name: Validate Azure secrets
+      id: secrets
       env:
         AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -38,9 +39,11 @@ jobs:
         if [ -n "$missing" ]; then
           echo "::warning::Missing required repository secrets:$missing"
           echo "Configure these in Settings > Secrets and variables > Actions"
+          echo "configured=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         echo "All required Azure secrets are configured"
+        echo "configured=true" >> "$GITHUB_OUTPUT"
 
     - name: Checkout code
       uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -222,13 +225,7 @@ jobs:
         retention-days: 30
 
     - name: Create GitHub issue on failure
-      if: >-
-        always() &&
-        secrets.AZURE_TENANT_ID != '' &&
-        secrets.AZURE_SUBSCRIPTION_ID != '' &&
-        secrets.AZURE_CLIENT_ID != '' &&
-        secrets.AZURE_CLIENT_SECRET != '' &&
-        (steps.phase1.outcome == 'failure' || steps.phase2.outcome == 'failure' || steps.phase3.outcome == 'failure')
+      if: always() && steps.secrets.outputs.configured == 'true' && (steps.phase1.outcome == 'failure' || steps.phase2.outcome == 'failure' || steps.phase3.outcome == 'failure')
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         WORKFLOW_NAME: Management Cluster (ARO)
