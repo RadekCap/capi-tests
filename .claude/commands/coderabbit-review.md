@@ -1,0 +1,554 @@
+---
+description: Full pipeline - self-review, wait for CodeRabbit AI, process all findings with individual commits
+---
+
+# CodeRabbit Review Pipeline
+
+Full pipeline command that runs Claude Code self-review, waits for CodeRabbit AI review, and processes all findings - accepting or denying each one with individual commits per fix. Every finding gets a reply and is resolved.
+
+## Usage
+
+```
+/coderabbit-review [pr-number]
+```
+
+If no PR number is provided, auto-detects the PR for the current branch.
+
+**Example**: `/coderabbit-review 42` or just `/coderabbit-review`
+
+## Instructions
+
+### Step 1: Determine PR and Repository Context
+
+1. Extract repository information:
+   ```bash
+   REPO_INFO=$(gh repo view --json owner,name)
+   OWNER=$(echo "$REPO_INFO" | jq -r '.owner.login')
+   REPO=$(echo "$REPO_INFO" | jq -r '.name')
+   ```
+
+2. Determine PR number:
+   - If argument provided: use `$ARGUMENTS` as the PR number
+   - If no argument: auto-detect from current branch:
+     ```bash
+     PR_NUMBER=$(gh pr view --json number -q '.number' 2>/dev/null)
+     ```
+   - If no PR exists for the current branch, ask the user:
+     - "No PR found for the current branch. Would you like to:"
+       - Option 1: Create a new PR (follow `.github/PULL_REQUEST_TEMPLATE.md`)
+       - Option 2: Provide a PR number manually
+       - Option 3: Cancel
+   - If creating a PR, push the current branch first if needed:
+     ```bash
+     BRANCH=$(git branch --show-current)
+     git push -u origin "$BRANCH"
+     ```
+     Then create the PR following the repository's PR template.
+
+3. Verify PR exists and is open:
+   ```bash
+   PR_STATE=$(gh pr view "$PR_NUMBER" --json state -q '.state')
+   ```
+   - If not OPEN, warn and ask if user wants to proceed
+
+4. Display context:
+   ```
+   Repository: $OWNER/$REPO
+   Pull Request: #$PR_NUMBER
+   Branch: <current branch>
+   ```
+
+### Step 2: Self-Review
+
+Before CodeRabbit reviews, run Claude Code's own code review to catch issues early.
+
+1. **Get the PR diff**:
+   ```bash
+   gh pr diff "$PR_NUMBER"
+   ```
+
+2. **Run self-review** using the `pr-review-toolkit:code-reviewer` agent:
+   - Use the Agent tool to launch the `pr-review-toolkit:code-reviewer` agent
+   - Provide the diff context for review
+   - The agent checks for: code quality, security, pattern compliance (CLAUDE.md), test coverage
+
+3. **Implement self-review fixes**:
+   - For each issue found:
+     - Read the affected file and understand the context
+     - Implement the fix
+     - Stage specific files: `git add <file1> <file2>`
+     - Commit with descriptive message:
+       ```bash
+       git commit -m "$(cat <<'EOF'
+       fix: <description of self-review fix>
+
+       Self-review finding addressed before external review.
+
+       Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+       EOF
+       )"
+       ```
+   - Push all self-review fixes:
+     ```bash
+     git push
+     ```
+
+4. **If no issues found**, skip to Step 3:
+   ```
+   Self-review: No issues found. Proceeding to wait for CodeRabbit.
+   ```
+
+### Steps 3-6: CodeRabbit Review Loop
+
+Steps 3 through 6 run in a **repeat loop**. Each time fixes are pushed (accepted findings), CodeRabbit may re-review and find new issues. The loop continues until CodeRabbit has zero new unresolved findings.
+
+**Loop variables**:
+- `ROUND=1` - current iteration number
+- `MAX_ROUNDS=5` - safety limit to prevent infinite loops
+- `ANY_ACCEPTED=false` - tracks if any findings were accepted in the current round
+
+### Step 3: Wait for CodeRabbit Review
+
+After pushing changes, CodeRabbit automatically triggers a review. Poll until it completes.
+
+**On round 1**: Poll for CodeRabbit's initial review (may take longer).
+**On round 2+**: Poll for CodeRabbit's incremental re-review (triggered by pushed fixes).
+
+1. **Poll for CodeRabbit's review completion**:
+
+   ```bash
+   MAX_ATTEMPTS=20
+   POLL_INTERVAL=30
+   ATTEMPT=0
+
+   while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+     ATTEMPT=$((ATTEMPT + 1))
+     echo "Polling for CodeRabbit review... (attempt $ATTEMPT/$MAX_ATTEMPTS)"
+
+     # Check for CodeRabbit PR comment (walkthrough/summary)
+     CR_COMMENT=$(gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
+       --jq '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai")] | length')
+
+     if [ "$CR_COMMENT" -gt 0 ]; then
+       echo "CodeRabbit review detected!"
+       break
+     fi
+
+     if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+       echo "WARNING: CodeRabbit review not detected after $((MAX_ATTEMPTS * POLL_INTERVAL / 60)) minutes."
+       echo "Proceeding to check for any existing review threads anyway."
+       break
+     fi
+
+     echo "No CodeRabbit review yet. Waiting ${POLL_INTERVAL}s..."
+     sleep $POLL_INTERVAL
+   done
+   ```
+
+2. **Wait for thread posting to complete** (CodeRabbit posts the summary first, then individual threads):
+   ```bash
+   echo "Waiting 15s for CodeRabbit to finish posting review threads..."
+   sleep 15
+   ```
+
+### Step 4: Fetch and Filter CodeRabbit Findings
+
+1. **Fetch all review threads** via GraphQL:
+   ```bash
+   THREADS_JSON=$(gh api graphql -f query='
+     query($owner: String!, $repo: String!, $pr: Int!) {
+       repository(owner: $owner, name: $repo) {
+         pullRequest(number: $pr) {
+           reviewThreads(first: 100) {
+             nodes {
+               id
+               isResolved
+               comments(first: 50) {
+                 nodes {
+                   id
+                   databaseId
+                   body
+                   author { login }
+                   path
+                   line
+                   startLine
+                 }
+                 pageInfo {
+                   hasNextPage
+                   endCursor
+                 }
+               }
+             }
+             pageInfo {
+               hasNextPage
+               endCursor
+             }
+           }
+         }
+       }
+     }
+   ' -F owner="$OWNER" -F repo="$REPO" -F pr="$PR_NUMBER")
+   ```
+
+   **Note**: The `startLine` field is included for multi-line suggestion support.
+
+2. **Check pagination warnings**:
+   ```bash
+   THREADS_HAS_NEXT=$(echo "$THREADS_JSON" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')
+   if [ "$THREADS_HAS_NEXT" = "true" ]; then
+     echo "WARNING: More than 100 review threads exist. Only the first 100 were fetched."
+   fi
+
+   COMMENTS_OVER_LIMIT=$(echo "$THREADS_JSON" | jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.comments.pageInfo.hasNextPage == true)] | length')
+   if [ "$COMMENTS_OVER_LIMIT" -gt 0 ]; then
+     echo "WARNING: One or more threads have more than 50 comments. Some findings may be missing."
+   fi
+   ```
+
+3. **Filter for CodeRabbit threads only**:
+   ```bash
+   CR_THREADS=$(echo "$THREADS_JSON" | jq '[
+     .data.repository.pullRequest.reviewThreads.nodes[] |
+     select(.comments.nodes | length > 0) |
+     select((.comments.nodes[0].author.login // "") | test("coderabbitai"; "i"))
+   ]')
+   ```
+
+4. **Exclude walkthrough/summary threads** (not actionable findings):
+   ```bash
+   CR_FINDINGS=$(echo "$CR_THREADS" | jq '[
+     .[] |
+     select(
+       (.comments.nodes[0].body | test("^## Walkthrough"; "m") | not) and
+       (.comments.nodes[0].body | test("^## Summary"; "m") | not) and
+       (.comments.nodes[0].body | test("auto-generated"; "i") | not)
+     )
+   ]')
+   ```
+
+5. **Filter to unresolved findings only** (skip threads resolved in prior rounds):
+   ```bash
+   CR_UNRESOLVED=$(echo "$CR_FINDINGS" | jq '[.[] | select(.isResolved == false)]')
+   TOTAL_FINDINGS=$(echo "$CR_UNRESOLVED" | jq 'length')
+   echo "Round $ROUND: Found $TOTAL_FINDINGS unresolved CodeRabbit findings"
+   ```
+
+6. **If zero unresolved findings**: CodeRabbit has no more issues - **exit the loop** and proceed to Step 7 (summary).
+
+### Step 5: Process Each Finding
+
+For EACH finding (iterate through CR_UNRESOLVED by index `$i`, 0-based):
+
+#### 5a. Extract Finding Details
+
+```bash
+FINDING_DATA=$(echo "$CR_UNRESOLVED" | jq ".[$i]")
+THREAD_ID=$(echo "$FINDING_DATA" | jq -r '.id')
+IS_RESOLVED=$(echo "$FINDING_DATA" | jq -r '.isResolved')
+COMMENT=$(echo "$FINDING_DATA" | jq '.comments.nodes[0]')
+COMMENT_BODY=$(echo "$COMMENT" | jq -r '.body')
+COMMENT_DB_ID=$(echo "$COMMENT" | jq -r '.databaseId')
+FILE_PATH=$(echo "$COMMENT" | jq -r '.path')
+LINE=$(echo "$COMMENT" | jq -r '.line')
+START_LINE=$(echo "$COMMENT" | jq -r '.startLine // .line')
+
+echo ""
+echo "========================================"
+echo "Finding #$((i+1))/$TOTAL_FINDINGS"
+echo "========================================"
+echo "Thread ID: $THREAD_ID"
+echo "File: $FILE_PATH:$LINE"
+echo "Resolved: $IS_RESOLVED"
+```
+
+**Skip if already resolved**:
+```bash
+if [ "$IS_RESOLVED" = "true" ]; then
+  echo "Thread already resolved, skipping"
+  # continue to next finding
+fi
+```
+
+#### 5b. Check for Suggestion Block
+
+Check if the comment contains a ` ```suggestion ` code block:
+```bash
+HAS_SUGGESTION=$(echo "$COMMENT_BODY" | grep -c '```suggestion' || true)
+```
+
+- If `HAS_SUGGESTION > 0`: the comment contains an exact code suggestion. Extract the content between ` ```suggestion ` and the closing ` ``` `. The suggestion replaces lines `START_LINE` through `LINE` in `FILE_PATH`.
+- If `HAS_SUGGESTION == 0`: this is a general recommendation. Claude Code must read the code, understand the recommendation, and implement manually.
+
+#### 5c. Analyze the Finding
+
+- Read the code context at `$FILE_PATH` around lines `$START_LINE` to `$LINE` using the Read tool
+- Understand the suggestion in `$COMMENT_BODY`
+- Evaluate against:
+  - Repository patterns (check CLAUDE.md)
+  - Code quality and correctness
+  - Security implications
+  - Test impact and idempotency
+  - Whether the suggestion is actually beneficial
+
+#### 5d. Decision: ACCEPT
+
+If the finding is valid and should be implemented:
+
+1. **Apply the fix**:
+   - If suggestion block exists: parse the suggestion content, replace lines `START_LINE` through `LINE` in `FILE_PATH` with the suggestion content using the Edit tool
+   - If general recommendation: implement the change manually using Edit tool
+   - If the file was modified by a prior fix (lines shifted), re-read the file and find the correct location
+
+2. **Format code** (if applicable):
+   ```bash
+   make fmt 2>/dev/null || true
+   ```
+
+3. **Commit the individual fix** (ONE COMMIT PER FINDING):
+   ```bash
+   git add "$FILE_PATH"
+   git commit -m "$(cat <<'EOF'
+   fix: address CodeRabbit finding - <brief description>
+
+   CodeRabbit finding #N for PR #<pr-number>:
+   - File: <file>:<line>
+   - <description of what was changed>
+
+   Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+   EOF
+   )"
+   ```
+
+4. **Push the commit**:
+   ```bash
+   git push
+   ```
+
+5. **Post reply to the thread**:
+   ```bash
+   gh api -X POST "repos/$OWNER/$REPO/pulls/comments/$COMMENT_DB_ID/replies" \
+     -f body="$(cat <<'EOF'
+   **Implemented** - Finding #N
+
+   **Change Made**: <description of implementation>
+
+   **Commit**: <short SHA>
+
+   **Details**:
+   - <specific change 1>
+   - <specific change 2>
+   EOF
+   )"
+   ```
+
+   **Fallback** (if thread reply API fails):
+   ```bash
+   gh pr review $PR_NUMBER --comment --body "Implemented Finding #N: <description>"
+   ```
+
+6. **Resolve the thread**:
+   ```bash
+   echo "Resolving thread $THREAD_ID..."
+   RESOLVE_RESULT=$(gh api graphql -f query='
+     mutation($threadId: ID!) {
+       resolveReviewThread(input: {threadId: $threadId}) {
+         thread {
+           id
+           isResolved
+         }
+       }
+     }
+   ' -F threadId="$THREAD_ID" 2>&1)
+
+   if echo "$RESOLVE_RESULT" | jq -e '.data.resolveReviewThread.thread.isResolved == true' > /dev/null 2>&1; then
+     echo "Thread $THREAD_ID resolved successfully"
+   else
+     echo "Warning: Failed to resolve thread $THREAD_ID"
+     echo "Error: $RESOLVE_RESULT"
+     echo "You can resolve manually in GitHub UI if needed"
+   fi
+
+   sleep 0.5
+   ```
+
+#### 5e. Decision: DENY
+
+If the finding is not valid or not applicable:
+
+1. **Post reply with rationale**:
+   ```bash
+   gh api -X POST "repos/$OWNER/$REPO/pulls/comments/$COMMENT_DB_ID/replies" \
+     -f body="$(cat <<'EOF'
+   **Not Implementing** - Finding #N
+
+   **Rationale**: <clear explanation of why this doesn't fit>
+
+   **Reasoning**:
+   - <specific reason 1>
+   - <specific reason 2>
+
+   <any additional context>
+   EOF
+   )"
+   ```
+
+   **Fallback** (if thread reply API fails):
+   ```bash
+   gh pr review $PR_NUMBER --comment --body "Not implementing Finding #N: <rationale>"
+   ```
+
+2. **Resolve the thread** (same GraphQL mutation as ACCEPT):
+   ```bash
+   echo "Resolving thread $THREAD_ID..."
+   RESOLVE_RESULT=$(gh api graphql -f query='
+     mutation($threadId: ID!) {
+       resolveReviewThread(input: {threadId: $threadId}) {
+         thread {
+           id
+           isResolved
+         }
+       }
+     }
+   ' -F threadId="$THREAD_ID" 2>&1)
+
+   if echo "$RESOLVE_RESULT" | jq -e '.data.resolveReviewThread.thread.isResolved == true' > /dev/null 2>&1; then
+     echo "Thread $THREAD_ID resolved successfully"
+   else
+     echo "Warning: Failed to resolve thread $THREAD_ID"
+     echo "Error: $RESOLVE_RESULT"
+     echo "You can resolve manually in GitHub UI if needed"
+   fi
+
+   sleep 0.5
+   ```
+
+### Step 6: Dismiss Stale CodeRabbit Review
+
+After processing all findings, if CodeRabbit submitted a "Changes Requested" review, dismiss it:
+
+```bash
+CR_REVIEW_ID=$(gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '[.[] | select(.user.login == "coderabbitai[bot]" and .state == "CHANGES_REQUESTED")] | .[0].id // empty')
+
+if [ -n "$CR_REVIEW_ID" ]; then
+  echo "Dismissing stale CodeRabbit 'Changes Requested' review..."
+  gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews/$CR_REVIEW_ID/dismissals" \
+    -X PUT -f message="All CodeRabbit findings have been addressed by Claude Code." -f event="DISMISS"
+  echo "Review dismissed."
+else
+  echo "No stale 'Changes Requested' review to dismiss."
+fi
+```
+
+### Loop Back Decision
+
+After processing all findings in the current round:
+
+1. **Check if any findings were accepted** (commits pushed) in this round
+2. **If yes**: Increment `ROUND`, check against `MAX_ROUNDS` safety limit (default: 5)
+   - If under limit: **Go back to Step 3** (wait for CodeRabbit's incremental re-review)
+   - If at limit: Log warning and exit loop:
+     ```
+     WARNING: Reached maximum review rounds (5). Some new CodeRabbit findings may remain.
+     Run `/coderabbit-review` again to continue processing.
+     ```
+3. **If no findings were accepted** (all denied or already resolved): **Exit the loop** - no new code was pushed, so CodeRabbit won't re-review. Proceed to Step 7.
+
+This ensures the pipeline iterates until CodeRabbit is satisfied (zero new unresolved findings) or the safety limit is reached.
+
+### Step 7: Summary Report
+
+At the end, provide a comprehensive summary:
+
+```
+========================================
+CodeRabbit Review Pipeline Summary - PR #<number>
+========================================
+
+Self-Review:
+- Findings found: X
+- Fixes committed: Y
+
+CodeRabbit Review:
+- Review Rounds: N
+- Total Findings (all rounds): X
+- Accepted: Y (with individual commits)
+- Denied: Z
+- Already Resolved: W
+- Stale Review Dismissed: Yes/No
+
+Accepted Findings:
+1. [Round N] Finding #N: <brief description> - file:line (commit: <SHA>)
+2. ...
+
+Denied Findings:
+1. [Round N] Finding #N: <brief description> - Rationale: <brief reason>
+2. ...
+
+All threads resolved: Yes/No
+```
+
+## Important Guidelines
+
+### Decision Criteria
+
+- **Security findings**: ALWAYS implement security fixes unless there is a very strong reason not to
+- **Pattern compliance**: Prioritize fixes that align with CLAUDE.md patterns
+- **Test impact**: Consider if changes affect test behavior or idempotency
+- **Suggestion blocks**: Prefer applying CodeRabbit's exact suggestion when it is correct; modify only if the suggestion has a bug
+- **Be thorough**: Every finding gets a response and resolution
+- **Be respectful**: Provide clear rationale for denials
+
+### Commit Strategy
+
+- **ONE COMMIT PER FINDING** - each accepted finding gets its own commit
+- Commit message format: `fix: address CodeRabbit finding - <description>`
+- Push after each commit to keep the PR updated
+- Include `Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>` in every commit
+
+### Thread Reply Strategy
+
+- **Primary method**: `gh api -X POST repos/{owner}/{repo}/pulls/comments/{comment_db_id}/replies` for threaded replies (directly in thread context)
+- **Fallback method**: `gh pr review {pr_number} --comment --body "..."` if thread reply API fails
+- Always resolve the thread after posting the reply
+
+### Edge Cases
+
+1. **CodeRabbit review never arrives** (timeout): Proceed with warning. Report that CodeRabbit did not review in time and suggest re-running later.
+
+2. **No findings from CodeRabbit**: Report success - CodeRabbit found no issues. Skip to summary.
+
+3. **CodeRabbit re-reviews after pushes**: Each accepted fix triggers a push, which triggers a new incremental review. The command automatically loops back (Steps 3-6) to process new findings. Safety limit of 5 rounds prevents infinite loops.
+
+4. **Push fails** (merge conflicts): Stop processing, inform the user, and provide instructions for manual resolution.
+
+5. **File no longer exists**: If `FILE_PATH` from a finding was deleted by a prior fix, skip the finding and resolve the thread with an explanation.
+
+6. **Line shift from prior fixes**: If lines shifted due to earlier fixes, re-read the current file, find the relevant code at the correct location, and apply the fix there.
+
+7. **Multiple suggestion blocks in one comment**: Apply all suggestion blocks within the same commit for that finding.
+
+## Response Format for Each Finding
+
+**Finding #N: [Brief description]**
+- **Location**: `file.go:line`
+- **Thread ID**: `PRRT_...`
+- **CodeRabbit Suggestion**: [Summary of what was suggested]
+- **Has Suggestion Block**: Yes/No
+- **Decision**: ACCEPTED / DENIED
+- **Action**: [What was implemented OR why it was denied]
+- **Commit**: `<SHA>` (if accepted)
+- **Reply Posted**: Yes
+- **Thread Resolved**: Yes / Failed (manual resolution needed)
+
+## Permissions Required
+
+- Repository > Contents: Read and Write
+- Repository > Pull Requests: Read and Write
+- Ability to dismiss reviews (requires write access)
+
+## Related Commands
+
+- `/copilot-review <pr>` - Process GitHub Copilot code review findings (same thread resolution pattern)
+- `/implement-issue <number>` - Implement a GitHub issue end-to-end (includes PR creation)
+- `/review-test <file>` - Review test files for pattern compliance
