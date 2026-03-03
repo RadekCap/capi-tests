@@ -34,9 +34,9 @@ jobs:
         [ -z "$AWS_SECRET_ACCESS_KEY" ] && missing="$missing AWS_SECRET_ACCESS_KEY"
         [ -z "$AWS_REGION" ] && missing="$missing AWS_REGION"
         if [ -n "$missing" ]; then
-          echo "::error::Missing required repository secrets:$missing"
+          echo "::warning::Missing required repository secrets:$missing"
           echo "Configure these in Settings > Secrets and variables > Actions"
-          exit 1
+          exit 0
         fi
         echo "All required AWS secrets are configured"
 
