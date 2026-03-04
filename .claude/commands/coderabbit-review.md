@@ -233,7 +233,98 @@ After pushing changes, CodeRabbit automatically triggers a review. Poll until it
    echo "Round $ROUND: Found $TOTAL_FINDINGS unresolved CodeRabbit findings"
    ```
 
-6. **If zero unresolved findings**: CodeRabbit has no more issues - **exit the loop** and proceed to Step 7 (summary).
+6. **If zero unresolved findings**: CodeRabbit has no more issues - proceed to Step 4b to check pre-merge checks, then to Step 7 (summary).
+
+### Step 4b: Check Pre-merge Checks
+
+CodeRabbit posts pre-merge check results (e.g., "Linked Issues", "Description Check", "Title check") in its main PR comment body. Failed checks are marked with `❌` and are NOT captured by the review thread query in Step 4. This step parses those checks separately.
+
+1. **Fetch CodeRabbit's main PR comment body**:
+   ```bash
+   CR_COMMENT_BODY=$(gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
+     --jq '[.[] | select(.user.login == "coderabbitai[bot]" or .user.login == "coderabbitai")] | .[0].body // ""')
+   ```
+
+2. **Check for failed pre-merge checks** (`❌` marker):
+   ```bash
+   FAILED_CHECKS=$(echo "$CR_COMMENT_BODY" | grep -c '❌' || true)
+   echo "Pre-merge checks with failures: $FAILED_CHECKS"
+   ```
+
+3. **If zero failed checks**: Skip to Step 5 (or Step 7 if no unresolved thread findings either).
+
+4. **For each failed check** (extract lines containing `❌`):
+   ```bash
+   echo "$CR_COMMENT_BODY" | grep '❌' | while IFS= read -r CHECK_LINE; do
+     CHECK_NAME=$(echo "$CHECK_LINE" | sed 's/.*❌[[:space:]]*//' | sed 's/[[:space:]]*$//')
+     echo ""
+     echo "========================================"
+     echo "Failed Pre-merge Check: $CHECK_NAME"
+     echo "========================================"
+   done
+   ```
+
+5. **For each failed check, analyze validity**:
+   - Read the PR diff (`gh pr diff "$PR_NUMBER"`) and affected files
+   - Determine if the check failure is **valid** (a real issue that should be fixed) or a **false positive** (the check is wrong or not applicable)
+   - Consider the check type:
+     - **Linked Issues**: Does the PR reference an issue? Check PR body for `Fixes #`, `Closes #`, issue URLs, or JIRA references
+     - **Description Check**: Is the PR description adequate?
+     - **Title Check**: Does the PR title follow conventions?
+     - **Out of Scope Changes**: Are all changes relevant to the PR's stated purpose?
+     - **Docstring Coverage**: Are new functions/types documented?
+
+6. **If valid**: Implement the fix:
+   - Make the necessary changes (e.g., add issue link to PR body, update title, add docstrings)
+   - For PR metadata fixes (title, body), use `gh pr edit`:
+     ```bash
+     # Update PR body to add issue link
+     gh pr edit "$PR_NUMBER" --body "$(updated body content)"
+     # Update PR title
+     gh pr edit "$PR_NUMBER" --title "new title"
+     ```
+   - For code fixes (e.g., missing docstrings), edit files, commit, and push:
+     ```bash
+     git add <files>
+     git commit -m "$(cat <<'EOF'
+     fix: address CodeRabbit pre-merge check - <check name>
+
+     CodeRabbit pre-merge check for PR #<pr-number>:
+     - Check: <check name>
+     - <description of what was changed>
+
+     Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+     EOF
+     )"
+     git push
+     ```
+   - Post a PR comment acknowledging the fix:
+     ```bash
+     gh pr comment "$PR_NUMBER" --body "$(cat <<'EOF'
+     **Pre-merge Check Fixed**: <check name>
+
+     **Action**: <description of what was done>
+     EOF
+     )"
+     ```
+
+7. **If false positive**: Post a PR comment explaining why:
+   ```bash
+   gh pr comment "$PR_NUMBER" --body "$(cat <<'EOF'
+   **Pre-merge Check - False Positive**: <check name>
+
+   **Rationale**: <explanation of why this check failure is not applicable>
+
+   **Details**:
+   - <specific reason 1>
+   - <specific reason 2>
+   EOF
+   )"
+   ```
+
+8. **Track results** for the Step 7 summary:
+   - Count total failed pre-merge checks
+   - Count fixed vs false positives
 
 ### Step 5: Process Each Finding
 
@@ -477,6 +568,11 @@ CodeRabbit Review:
 - Already Resolved: W
 - Stale Review Dismissed: Yes/No
 
+Pre-merge Checks:
+- Total Failed: X
+- Fixed: Y
+- False Positives: Z
+
 Accepted Findings:
 1. [Round N] Finding #N: <brief description> - file:line (commit: <SHA>)
 2. ...
@@ -527,6 +623,8 @@ All threads resolved: Yes/No
 6. **Line shift from prior fixes**: If lines shifted due to earlier fixes, re-read the current file, find the relevant code at the correct location, and apply the fix there.
 
 7. **Multiple suggestion blocks in one comment**: Apply all suggestion blocks within the same commit for that finding.
+
+8. **Pre-merge check false positives**: CodeRabbit's pre-merge checks (e.g., "Linked Issues") may report failures that are false positives (e.g., issue is linked via JIRA reference instead of GitHub `Fixes #N` syntax). Analyze the actual PR content before deciding. Post a PR comment explaining the false positive rather than making unnecessary changes.
 
 ## Response Format for Each Finding
 
