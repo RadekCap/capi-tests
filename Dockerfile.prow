@@ -27,7 +27,7 @@ RUN curl -Lo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION
 # Install helm (with checksum verification)
 RUN curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" -o /tmp/helm.tar.gz && \
     curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" -o /tmp/helm.sha256sum && \
-    cd /tmp && sha256sum -c helm.sha256sum && \
+    echo "$(awk '{print $1}' /tmp/helm.sha256sum)  /tmp/helm.tar.gz" | sha256sum -c && \
     tar xz -C /tmp -f /tmp/helm.tar.gz && \
     mv /tmp/linux-amd64/helm /usr/local/bin/helm && chmod +x /usr/local/bin/helm && \
     rm -rf /tmp/helm.tar.gz /tmp/helm.sha256sum /tmp/linux-amd64
