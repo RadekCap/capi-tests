@@ -12,7 +12,7 @@
 |---------|---------|
 | `kubectl --context <ctx> get namespace <ns>` | Check if namespace exists |
 | `kubectl --context <ctx> create namespace <ns>` | Create namespace |
-| `kubectl --context <ctx> label namespace <ns> capz-test=true ...` | Add identification labels |
+| `kubectl --context <ctx> label namespace <ns> <test-label-prefix>=true ...` | Add identification labels |
 
 ---
 
