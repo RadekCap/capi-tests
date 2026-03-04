@@ -1,0 +1,11 @@
+ref:
+  as: capz-test-check-dependencies
+  from: src
+  commands: capz-test-check-dependencies-commands.sh
+  resources:
+    requests:
+      cpu: 100m
+      memory: 200Mi
+  documentation: |-
+    Runs CAPZ test suite Phase 01 (check dependencies) to validate
+    tool availability and basic configuration.
