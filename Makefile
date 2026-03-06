@@ -598,7 +598,7 @@ check-prereq: ## Check if required tools are installed
 install-gotestsum: ## Install gotestsum for test summaries
 	@echo "Installing gotestsum v1.13.0..."
 	@command -v go >/dev/null 2>&1 || (echo "Error: go is required to install gotestsum. Install Go from https://golang.org/dl/" && exit 1)
-	@go install gotest.tools/gotestsum@v1.13.0
+	@GOFLAGS='' go install gotest.tools/gotestsum@v1.13.0
 	@echo "gotestsum installed successfully to $(GOBIN)/gotestsum"
 	@if ! echo ":$$PATH:" | grep -q ":$(GOBIN):"; then \
 		echo ""; \
