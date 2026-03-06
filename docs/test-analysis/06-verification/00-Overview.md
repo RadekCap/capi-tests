@@ -1,6 +1,6 @@
 # Phase 6: Verification
 
-**Make target:** `make _verify`
+**Make target:** `make _verify-workload-cluster`
 **Test file:** `test/06_verification_test.go`
 **Timeout:** 20 minutes
 
@@ -30,7 +30,7 @@ Verify the deployed ARO cluster is accessible and healthy by retrieving kubeconf
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    make _verify                                  │
+│              make _verify-workload-cluster                        │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼

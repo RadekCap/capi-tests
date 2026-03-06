@@ -88,8 +88,9 @@ make _setup          # Repository setup
 make _management_cluster # Cluster deployment
 make _generate-yamls # YAML generation
 make _deploy-crs     # CR deployment
-make _verify         # Cluster verification
-make _delete         # Cluster deletion
+make _verify-workload-cluster  # Workload cluster verification
+make _delete-workload-cluster  # Workload cluster deletion
+make _validate-cleanup         # Cleanup validation
 
 # Run specific test function
 go test -v ./test -run TestCheckDependencies_ToolAvailable

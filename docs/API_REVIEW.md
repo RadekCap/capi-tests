@@ -318,9 +318,9 @@ type TestConfig struct {
 | `_management_cluster` | ✅ Approved | Internal phase |
 | `_generate-yamls` | ✅ Approved | Internal phase |
 | `_deploy-crs` | ✅ Approved | Internal phase |
-| `_verify` | ✅ Approved | Internal phase |
-| `_delete` | ✅ Approved | Internal phase |
-| `_cleanup` | ✅ Approved | Internal phase (V1.1) |
+| `_verify-workload-cluster` | ✅ Approved | Internal phase |
+| `_delete-workload-cluster` | ✅ Approved | Internal phase |
+| `_validate-cleanup` | ✅ Approved | Internal phase (V1.1) |
 | `_test-all-impl` | ✅ Approved | Internal implementation |
 | `_copy-latest-results` | ✅ Approved | Internal helper |
 | `_clean-azure-force` | ✅ Approved | Internal force variant |

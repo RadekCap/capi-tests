@@ -1,4 +1,4 @@
-.PHONY: test _check-dep _setup _management_cluster _generate-yamls _deploy-crds _verify _delete _cleanup test-all _test-all-impl clean clean-all clean-azure help summary
+.PHONY: test _check-dep _setup _management_cluster _generate-yamls _deploy-crds _verify-workload-cluster _delete-workload-cluster _validate-cleanup test-all _test-all-impl clean clean-all clean-azure help summary
 
 # Default values
 # Extract CAPZ_USER default from Go config to maintain single source of truth
@@ -86,9 +86,9 @@ help: ## Display this help message
 	@echo "  3. make _management_cluster # Prepare cluster for testing, and prepare operators needed for testing"
 	@echo "  4. make _generate-yamls  # Generate script for resource creation (yaml)"
 	@echo "  5. make _deploy-crs      # Deploy CRs and verify deployment"
-	@echo "  6. make _verify          # Verify deployed cluster"
-	@echo "  7. make _delete          # Delete workload cluster and verify cleanup"
-	@echo "  8. make _cleanup         # Validate cleanup operations (optional, standalone)"
+	@echo "  6. make _verify-workload-cluster  # Verify deployed workload cluster"
+	@echo "  7. make _delete-workload-cluster  # Delete workload cluster and verify deletion"
+	@echo "  8. make _validate-cleanup         # Validate cleanup operations (optional, standalone)"
 	@echo ""
 	@echo "Quick start:"
 	@echo ""
@@ -209,9 +209,9 @@ _deploy-crs: check-gotestsum
 	echo ""; \
 	exit $$EXIT_CODE
 
-_verify: check-gotestsum
+_verify-workload-cluster: check-gotestsum
 	@mkdir -p $(RESULTS_DIR)
-	@echo "=== Running Cluster Verification Tests ==="
+	@echo "=== Running Workload Cluster Verification Tests ==="
 	@echo "Results will be saved to: $(RESULTS_DIR)"
 	@echo ""
 	@EXIT_CODE=0; \
@@ -223,16 +223,16 @@ _verify: check-gotestsum
 	echo "Test results saved to: $(RESULTS_DIR)/junit-verify.xml"; \
 	echo "Latest results copied to: $(LATEST_RESULTS_DIR)/"; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
-		echo "✅ Cluster Verification Tests completed"; \
+		echo "✅ Workload Cluster Verification Tests completed"; \
 	else \
-		echo "❌ Cluster Verification Tests failed"; \
+		echo "❌ Workload Cluster Verification Tests failed"; \
 	fi; \
 	echo ""; \
 	exit $$EXIT_CODE
 
-_delete: check-gotestsum
+_delete-workload-cluster: check-gotestsum
 	@mkdir -p $(RESULTS_DIR)
-	@echo "=== Running Cluster Deletion Tests ==="
+	@echo "=== Running Workload Cluster Deletion Tests ==="
 	@echo "Results will be saved to: $(RESULTS_DIR)"
 	@echo ""
 	@EXIT_CODE=0; \
@@ -244,14 +244,14 @@ _delete: check-gotestsum
 	echo "Test results saved to: $(RESULTS_DIR)/junit-delete.xml"; \
 	echo "Latest results copied to: $(LATEST_RESULTS_DIR)/"; \
 	if [ $$EXIT_CODE -eq 0 ]; then \
-		echo "✅ Cluster Deletion Tests completed"; \
+		echo "✅ Workload Cluster Deletion Tests completed"; \
 	else \
-		echo "❌ Cluster Deletion Tests failed"; \
+		echo "❌ Workload Cluster Deletion Tests failed"; \
 	fi; \
 	echo ""; \
 	exit $$EXIT_CODE
 
-_cleanup: check-gotestsum
+_validate-cleanup: check-gotestsum
 	@mkdir -p $(RESULTS_DIR)
 	@echo "=== Running Cleanup Validation Tests ==="
 	@echo "Results will be saved to: $(RESULTS_DIR)"
@@ -338,16 +338,16 @@ _test-all-impl:
 		echo ""; \
 		exit 1 \
 	)
-	@$(MAKE) --no-print-directory _verify RESULTS_DIR=$(RESULTS_DIR) || ( \
+	@$(MAKE) --no-print-directory _verify-workload-cluster RESULTS_DIR=$(RESULTS_DIR) || ( \
 		echo ""; \
-		echo "❌ ERROR: Cluster verification phase failed."; \
+		echo "❌ ERROR: Workload cluster verification phase failed."; \
 		echo "   Previous stages completed successfully but final verification encountered issues."; \
 		echo ""; \
 		exit 1 \
 	)
-	@$(MAKE) --no-print-directory _delete RESULTS_DIR=$(RESULTS_DIR) || ( \
+	@$(MAKE) --no-print-directory _delete-workload-cluster RESULTS_DIR=$(RESULTS_DIR) || ( \
 		echo ""; \
-		echo "❌ ERROR: Cluster deletion phase failed."; \
+		echo "❌ ERROR: Workload cluster deletion phase failed."; \
 		echo "   Previous stages completed successfully but cluster deletion encountered issues."; \
 		echo ""; \
 		exit 1 \

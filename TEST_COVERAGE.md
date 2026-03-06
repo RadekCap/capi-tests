@@ -227,9 +227,9 @@ make test-all
 3. Cluster (`_management_cluster`) - Kind or External cluster mode
 4. Generate YAMLs (`_generate-yamls`)
 5. Deploy CRs (`_deploy-crs`)
-6. Verification (`_verify`)
-7. Delete (`_delete`)
-8. Cleanup (`_cleanup`)
+6. Verification (`_verify-workload-cluster`)
+7. Delete (`_delete-workload-cluster`)
+8. Cleanup (`_validate-cleanup`)
 
 ### External Cluster Mode
 

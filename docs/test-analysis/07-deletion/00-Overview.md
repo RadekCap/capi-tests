@@ -1,6 +1,6 @@
 # Phase 7: Deletion
 
-**Make target:** `make _delete`
+**Make target:** `make _delete-workload-cluster`
 **Test file:** `test/07_deletion_test.go`
 **Timeout:** 60 minutes
 
@@ -29,7 +29,7 @@ Delete the workload cluster from the management cluster and verify all associate
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    make _delete                                   │
+│              make _delete-workload-cluster                         │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼

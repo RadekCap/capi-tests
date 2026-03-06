@@ -21,11 +21,11 @@ make test-all
     │
     ├── 5. make _deploy-crs    CR Deployment
     │
-    ├── 6. make _verify        Cluster Verification
+    ├── 6. make _verify-workload-cluster  Workload Cluster Verification
     │
-    ├── 7. make _delete        Cluster Deletion
+    ├── 7. make _delete-workload-cluster  Workload Cluster Deletion
     │
-    └── 8. make _cleanup       Cleanup Validation
+    └── 8. make _validate-cleanup         Cleanup Validation
 ```
 
 ---
@@ -39,9 +39,9 @@ make test-all
 | 3 | [_management_cluster](03-cluster/00-Overview.md) | `03_cluster_test.go` | 11 | 30m | Deploy Kind/external cluster with controllers |
 | 4 | [_generate-yamls](04-generate-yamls/00-Overview.md) | `04_generate_yamls_test.go` | 4 | 20m | Generate YAML manifests |
 | 5 | [_deploy-crs](05-deploy-crs/00-Overview.md) | `05_deploy_crs_test.go` | 9 | 40m | Apply CRs, wait for deployment |
-| 6 | [_verify](06-verification/00-Overview.md) | `06_verification_test.go` | 7 | 20m | Validate workload cluster |
-| 7 | [_delete](07-deletion/00-Overview.md) | `07_deletion_test.go` | 6 | 60m | Delete workload cluster |
-| 8 | [_cleanup](08-cleanup/00-Overview.md) | `08_cleanup_test.go` | 18 | 10m | Validate cleanup operations |
+| 6 | [_verify-workload-cluster](06-verification/00-Overview.md) | `06_verification_test.go` | 7 | 20m | Validate workload cluster |
+| 7 | [_delete-workload-cluster](07-deletion/00-Overview.md) | `07_deletion_test.go` | 6 | 60m | Delete workload cluster |
+| 8 | [_validate-cleanup](08-cleanup/00-Overview.md) | `08_cleanup_test.go` | 18 | 10m | Validate cleanup operations |
 
 **Total: 76 tests across 8 phases**
 
@@ -149,9 +149,9 @@ make _setup          # Phase 2
 make _management_cluster # Phase 3
 make _generate-yamls # Phase 4
 make _deploy-crs     # Phase 5
-make _verify         # Phase 6
-make _delete         # Phase 7
-make _cleanup        # Phase 8
+make _verify-workload-cluster  # Phase 6
+make _delete-workload-cluster  # Phase 7
+make _validate-cleanup         # Phase 8
 ```
 
 ### Key Environment Variables
