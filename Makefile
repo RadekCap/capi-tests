@@ -57,6 +57,9 @@ LATEST_RESULTS_DIR := results/latest
 # Terminal output capture file
 TERMINAL_OUTPUT_FILE := terminal-output.log
 
+# Clear GOFLAGS to prevent inheriting -mod=vendor from CI base images (e.g., OpenShift CI)
+export GOFLAGS=
+
 # Determine Go binary installation path
 # Prefer GOBIN if set, otherwise use GOPATH/bin, with fallback to $HOME/go/bin
 GOBIN := $(shell if [ -n "$$(go env GOBIN 2>/dev/null)" ]; then go env GOBIN; else echo "$$(go env GOPATH 2>/dev/null || echo "$$HOME/go")/bin"; fi)
@@ -598,7 +601,7 @@ check-prereq: ## Check if required tools are installed
 install-gotestsum: ## Install gotestsum for test summaries
 	@echo "Installing gotestsum v1.13.0..."
 	@command -v go >/dev/null 2>&1 || (echo "Error: go is required to install gotestsum. Install Go from https://golang.org/dl/" && exit 1)
-	@GOFLAGS='' go install gotest.tools/gotestsum@v1.13.0
+	@go install gotest.tools/gotestsum@v1.13.0
 	@echo "gotestsum installed successfully to $(GOBIN)/gotestsum"
 	@if ! echo ":$$PATH:" | grep -q ":$(GOBIN):"; then \
 		echo ""; \
