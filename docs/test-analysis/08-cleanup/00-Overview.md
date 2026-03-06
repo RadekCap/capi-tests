@@ -1,6 +1,6 @@
 # Phase 8: Cleanup Validation
 
-**Make target:** `make _cleanup`
+**Make target:** `make _validate-cleanup`
 **Test file:** `test/08_cleanup_test.go`
 **Timeout:** 10 minutes
 
@@ -63,7 +63,7 @@ Validate that cleanup operations work correctly for local resources (Kind cluste
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    make _cleanup                                  │
+│              make _validate-cleanup                                │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼

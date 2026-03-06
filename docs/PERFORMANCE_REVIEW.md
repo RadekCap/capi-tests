@@ -333,8 +333,8 @@ time make _setup
 time make _management_cluster
 time make _generate-yamls
 time make _deploy-crs
-time make _verify
-time make _delete
+time make _verify-workload-cluster
+time make _delete-workload-cluster
 ```
 
 ---

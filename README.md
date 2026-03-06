@@ -248,9 +248,9 @@ These targets are called by `make test-all` but can be run individually for debu
 | `make _management_cluster` | Prepare cluster for testing and operators |
 | `make _generate-yamls` | Generate script for resource creation (yaml) |
 | `make _deploy-crs` | Deploy CRs and verify deployment |
-| `make _verify` | Verify deployed cluster |
-| `make _delete` | Delete workload cluster and verify cleanup |
-| `make _cleanup` | Validate cleanup operations completed successfully |
+| `make _verify-workload-cluster` | Verify deployed workload cluster |
+| `make _delete-workload-cluster` | Delete workload cluster and verify deletion |
+| `make _validate-cleanup` | Validate cleanup operations completed successfully |
 
 #### Cleanup Targets
 
