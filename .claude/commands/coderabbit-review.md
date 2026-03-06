@@ -254,8 +254,7 @@ After pushing changes, CodeRabbit automatically triggers a review. Poll until it
      .[] |
      select(
        (.comments.nodes[0].body | test("^## Walkthrough"; "m") | not) and
-       (.comments.nodes[0].body | test("^## Summary"; "m") | not) and
-       (.comments.nodes[0].body | test("auto-generated"; "i") | not)
+       (.comments.nodes[0].body | test("^## Summary"; "m") | not)
      )
    ]')
    ```
