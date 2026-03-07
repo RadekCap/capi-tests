@@ -4,6 +4,8 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+source openshift-ci/capz-test-env.sh
+
 # Phase 05: Deploy CRs
 # Applies cluster resources and waits for control plane deployment.
 # Produces JUnit XML in ${ARTIFACT_DIR} for Prow to collect.

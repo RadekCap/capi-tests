@@ -4,6 +4,8 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+source openshift-ci/capz-test-env.sh
+
 # Phase 08: Validate Cleanup
 # Validates cleanup operations for local and Azure resources.
 # Produces JUnit XML in ${ARTIFACT_DIR} for Prow to collect.

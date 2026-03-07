@@ -3,6 +3,8 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+source openshift-ci/capz-test-env.sh
+
 # Teardown: Safety net cleanup (post step - always runs)
 # Deletes Kind cluster, cloned repository, kubeconfig files, and Azure resources.
 # Uses best_effort so cleanup failures do not mask test failures.

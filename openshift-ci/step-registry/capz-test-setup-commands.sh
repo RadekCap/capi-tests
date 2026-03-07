@@ -4,6 +4,8 @@ set -o nounset
 set -o pipefail
 set -o xtrace
 
+source openshift-ci/capz-test-env.sh
+
 # Phase 02: Setup
 # Clones cluster-api-installer repository and verifies scripts.
 # Produces JUnit XML in ${ARTIFACT_DIR} for Prow to collect.
