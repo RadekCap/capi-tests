@@ -23,7 +23,7 @@ openshift-ci/
 
 ## How It Works
 
-1. **Dockerfile.prow** (in repo root) builds a container image with all required tools (Go, azure-cli, kind, kubectl, helm, gotestsum, clusterctl)
+1. **Dockerfile.prow** (in repo root) builds a container image with all required tools (Go, azure-cli, kubectl, helm, gotestsum, clusterctl, oc)
 2. **ci-operator** uses the config to define test jobs that run against PRs and periodically
 3. **Step registry** entries define individual test steps — currently Phase 01 (check dependencies)
 4. Test results are written as JUnit XML to `${ARTIFACT_DIR}` for Prow to collect and display

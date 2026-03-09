@@ -11,11 +11,13 @@ resources:
 tests:
 - as: capz-e2e
   steps:
+    cluster_profile: azure4
     pre:
+    - chain: ipi-azure-pre
     - ref: capz-test-check-dependencies
     - ref: capz-test-setup
-    test:
     - ref: capz-test-management-cluster
+    test:
     - ref: capz-test-generate-yamls
     - ref: capz-test-deploy-crs
     - ref: capz-test-verify-workload-cluster
@@ -23,6 +25,7 @@ tests:
     - ref: capz-test-validate-cleanup
     post:
     - ref: capz-test-teardown
+    - chain: ipi-azure-post
 zz_generated_metadata:
   branch: main
   org: stolostron
