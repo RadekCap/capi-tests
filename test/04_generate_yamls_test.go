@@ -90,6 +90,7 @@ func TestInfrastructure_GenerateResources(t *testing.T) {
 					PrintToTTY("  rm -rf %s\n\n", outputDir)
 					t.Logf("Infrastructure already generated at %s, skipping", outputDir)
 					infrastructureGenerationSucceeded = true
+					copyYAMLsToResultsDir(t, outputDir, expectedFiles)
 					return
 				}
 			}
@@ -194,6 +195,57 @@ func TestInfrastructure_GenerateResources(t *testing.T) {
 		} else {
 			PrintToTTY("📝 Deployment state saved to %s\n", DeploymentStateFile)
 			t.Logf("Deployment state saved (namespace: %s)", config.WorkloadClusterNamespace)
+		}
+
+		// Copy generated YAMLs to results directory for visibility
+		copyYAMLsToResultsDir(t, outputDir, expectedFiles)
+	}
+}
+
+// copyYAMLsToResultsDir copies generated YAML files to the results directory for visibility.
+// This ensures generated infrastructure definitions are available alongside other test artifacts
+// (controller logs, test summaries) in the results directory.
+func copyYAMLsToResultsDir(t *testing.T, outputDir string, expectedFiles []string) {
+	t.Helper()
+
+	resultsDir := GetResultsDir()
+
+	for _, file := range expectedFiles {
+		srcPath := filepath.Join(outputDir, file)
+		if !FileExists(srcPath) {
+			continue
+		}
+
+		// #nosec G304 -- path constructed from trusted outputDir and expected file names
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			t.Logf("Warning: failed to read %s for results copy: %v", srcPath, err)
+			continue
+		}
+
+		destPath := filepath.Join(resultsDir, file)
+		if err := os.WriteFile(destPath, data, 0600); err != nil {
+			t.Logf("Warning: failed to copy %s to results: %v", file, err)
+		} else {
+			t.Logf("Copied %s to results directory: %s", file, destPath)
+		}
+	}
+
+	// Also copy to results/latest if it exists and differs from resultsDir
+	latestDir := "results/latest"
+	if resultsDir != latestDir && DirExists(latestDir) {
+		for _, file := range expectedFiles {
+			srcPath := filepath.Join(outputDir, file)
+			if !FileExists(srcPath) {
+				continue
+			}
+			// #nosec G304 -- path constructed from trusted outputDir and expected file names
+			data, err := os.ReadFile(srcPath)
+			if err != nil {
+				continue
+			}
+			destPath := filepath.Join(latestDir, file)
+			_ = os.WriteFile(destPath, data, 0600)
 		}
 	}
 }
