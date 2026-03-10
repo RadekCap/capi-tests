@@ -202,9 +202,17 @@ func TestInfrastructure_GenerateResources(t *testing.T) {
 	}
 }
 
+// sensitiveFiles lists YAML files that contain secrets and must not be copied to the results
+// directory. These files contain Kubernetes Secrets with credentials (e.g., Azure service
+// principal credentials) and must stay in the generation output directory only.
+var sensitiveFiles = map[string]bool{
+	"credentials.yaml": true,
+}
+
 // copyYAMLsToResultsDir copies generated YAML files to the results directory for visibility.
 // This ensures generated infrastructure definitions are available alongside other test artifacts
 // (controller logs, test summaries) in the results directory.
+// Files listed in sensitiveFiles are skipped to avoid leaking secrets into artifacts.
 func copyYAMLsToResultsDir(t *testing.T, outputDir string, expectedFiles []string) {
 	t.Helper()
 
@@ -213,6 +221,11 @@ func copyYAMLsToResultsDir(t *testing.T, outputDir string, expectedFiles []strin
 	copyToLatest := resultsDir != latestDir && DirExists(latestDir)
 
 	for _, file := range expectedFiles {
+		if sensitiveFiles[file] {
+			t.Logf("Skipping %s (contains secrets)", file)
+			continue
+		}
+
 		srcPath := filepath.Join(outputDir, file)
 		if !FileExists(srcPath) {
 			continue
