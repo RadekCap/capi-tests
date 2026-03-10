@@ -93,6 +93,11 @@ func TestInfrastructure_GenerateResources(t *testing.T) {
 					PrintToTTY("  rm -rf %s\n\n", outputDir)
 					t.Logf("Infrastructure already generated at %s, skipping", outputDir)
 					infrastructureGenerationSucceeded = true
+					if err := WriteDeploymentState(config); err != nil {
+						t.Logf("Warning: failed to write deployment state: %v", err)
+					} else {
+						t.Logf("Deployment state saved (namespace: %s)", config.WorkloadClusterNamespace)
+					}
 					copyYAMLsToResultsDir(t, outputDir, expectedFiles)
 					return
 				}
