@@ -613,15 +613,15 @@ func TestKindCluster_CAPIControllerReady(t *testing.T) {
 
 			// Dump diagnostic info to help identify the root cause
 			PrintToTTY("=== Diagnostic: pod status in %s ===\n", config.CAPINamespace)
-			if podOutput, podErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "get", "pods", "-o", "wide"); podErr == nil {
+			if podOutput, podErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "--request-timeout=30s", "get", "pods", "-o", "wide"); podErr == nil {
 				PrintToTTY("%s\n", podOutput)
 			}
 			PrintToTTY("=== Diagnostic: pod descriptions in %s ===\n", config.CAPINamespace)
-			if descOutput, descErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "describe", "pods"); descErr == nil {
+			if descOutput, descErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "--request-timeout=30s", "describe", "pods"); descErr == nil {
 				PrintToTTY("%s\n", descOutput)
 			}
 			PrintToTTY("=== Diagnostic: events in %s ===\n", config.CAPINamespace)
-			if evtOutput, evtErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "get", "events", "--sort-by=.lastTimestamp"); evtErr == nil {
+			if evtOutput, evtErr := RunCommand(t, "kubectl", "--context", context, "-n", config.CAPINamespace, "--request-timeout=30s", "get", "events", "--sort-by=.lastTimestamp"); evtErr == nil {
 				PrintToTTY("%s\n", evtOutput)
 			}
 
@@ -713,15 +713,15 @@ func TestKindCluster_InfraControllersReady(t *testing.T) {
 
 						// Dump diagnostic info to help identify the root cause
 						PrintToTTY("=== Diagnostic: pod status in %s ===\n", ctrl.Namespace)
-						if podOutput, podErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "get", "pods", "-o", "wide"); podErr == nil {
+						if podOutput, podErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "--request-timeout=30s", "get", "pods", "-o", "wide"); podErr == nil {
 							PrintToTTY("%s\n", podOutput)
 						}
 						PrintToTTY("=== Diagnostic: pod descriptions in %s ===\n", ctrl.Namespace)
-						if descOutput, descErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "describe", "pods"); descErr == nil {
+						if descOutput, descErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "--request-timeout=30s", "describe", "pods"); descErr == nil {
 							PrintToTTY("%s\n", descOutput)
 						}
 						PrintToTTY("=== Diagnostic: events in %s ===\n", ctrl.Namespace)
-						if evtOutput, evtErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "get", "events", "--sort-by=.lastTimestamp"); evtErr == nil {
+						if evtOutput, evtErr := RunCommand(t, "kubectl", "--context", context, "-n", ctrl.Namespace, "--request-timeout=30s", "get", "events", "--sort-by=.lastTimestamp"); evtErr == nil {
 							PrintToTTY("%s\n", evtOutput)
 						}
 
