@@ -75,14 +75,26 @@ usage() {
 while [[ $# -gt 0 ]]; do
     case $1 in
         --prefix)
+            if [[ $# -lt 2 ]]; then
+                print_error "Missing value for --prefix"
+                exit 1
+            fi
             PREFIX="$2"
             shift 2
             ;;
         --resource-group)
+            if [[ $# -lt 2 ]]; then
+                print_error "Missing value for --resource-group"
+                exit 1
+            fi
             RESOURCE_GROUP="$2"
             shift 2
             ;;
         --match-mode)
+            if [[ $# -lt 2 ]]; then
+                print_error "Missing value for --match-mode"
+                exit 1
+            fi
             MATCH_MODE="$2"
             if [[ "$MATCH_MODE" != "startswith" && "$MATCH_MODE" != "contains" ]]; then
                 print_error "Invalid match mode '${MATCH_MODE}': must be 'startswith' or 'contains'"
