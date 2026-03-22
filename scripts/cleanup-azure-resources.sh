@@ -15,7 +15,7 @@
 #   ./scripts/cleanup-azure-resources.sh [OPTIONS]
 #
 # Options:
-#   --prefix PREFIX        Resource name prefix to search for (default: CS_CLUSTER_NAME or CAPI_USER-DEPLOYMENT_ENV)
+#   --prefix PREFIX        Resource name prefix to search for (default: CS_CLUSTER_NAME, else CAPI_USER-DEPLOYMENT_ENV, else cate)
 #   --resource-group RG    Also delete this Azure resource group
 #   --match-mode MODE      How to match resource names: 'startswith' (default, safer) or 'contains' (broader)
 #   --dry-run              Show what would be deleted without actually deleting
